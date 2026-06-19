@@ -1,179 +1,223 @@
 #include <iostream>
 #include <vector>
-#include <numeric>
 #include <cstdlib>
 #include <ctime>
-#include <unistd.h> // sleep 기능
-#include <fstream>  // 파일 저장
-#include <iomanip>  // 시간 포맷 설정
-#include <sstream>  // 문자열 조립
+#include <unistd.h>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
 
 using namespace std;
 
-// 에러 코드 정의 (C++11 표준)
+// 에러 코드 정의
 enum ErrorCode {
     NORMAL = 0,
     NEED_INSPECTION = 101, 
     IMMEDIATE_STOP = 102   
 };
 
-// 30분 정기 저장 바구니에 담을 데이터 구조체 정의
+// 로그 데이터 구조체
 struct VibrationLog {
     string timestamp;
     int total_vibrations;
     int error_code;
 };
 
-// 파일 이름용 시간 포맷 (YYYYMMDD_HHMMSS)
-string getTimeForFilename() {
-    time_t now = time(0);
-    struct tm tstruct;
-    char buf[80];
-    tstruct = *localtime(&now);
-    strftime(buf, sizeof(buf), "%Y%m%d_%H%M%S", &tstruct);
-    return string(buf);
-}
 
-// 로그 텍스트 내부용 시간 포맷 (YYYY-MM-DD HH:MM:SS)
-string getCurrentTime() {
-    time_t now = time(0);
-    struct tm tstruct;
-    char buf[80];
-    tstruct = *localtime(&now);
-    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tstruct);
-    return string(buf);
-}
-
-int main() {
-    // [C++11 변경] 전통적인 NULL 대신 nullptr를 사용하는 것이 표준입니다.
-    srand(time(nullptr)); 
-
-    cout << "==================================================" << endl;
-    cout << "  1호기 이원화 저장 시스템 가동 (C++11 표준 적용) " << endl;
-    cout << "==================================================" << endl;
-
-    vector<VibrationLog> periodic_buffer;
-    int elapsed_seconds = 0; 
-    int SAVE_INTERVAL = 30; // 30초 주기 (실제 30분 가상)
-    int critical_counter = 0; // 16회 이상 비상 진동 누적 카운터
-
-    while (true) {
-        cout << "\n[새로운 실시간 진동 모니터링 중... (" << elapsed_seconds << "초 경과)]" << endl;
-
-        int sensor1 = rand() % 3; 
-        int sensor2 = rand() % 3;
-        int sensor3 = rand() % 3;
-
-        // 돌발 상황 시뮬레이션 확률 (20%)
-        int machine_condition = rand() % 5; 
-        if (machine_condition == 0) {
-            cout << "ℹ️ [현장 상황] 설비에 가벼운 일시적 충격 감지 (+6회)" << endl;
-            sensor1 += 3; sensor2 += 3;
-        } 
-        else if (machine_condition == 1) {
-            cout << "🚨 [현장 상황] 설비에 대형 모터 이상 진동 발생!!! (+18회)" << endl;
-            sensor1 += 6; sensor2 += 6; sensor3 += 6;
-        }
-
-        int total_vibrations = sensor1 + sensor2 + sensor3;
-        if (total_vibrations > 30) total_vibrations = 30;
-
-        cout << " -> 센서 현황 [ S1: " << sensor1 << "회 | S2: " << sensor2 << "회 | S3: " << sensor3 << "회 ]" << endl;
-        cout << " >> 1호기 누적 진동: [ " << total_vibrations << " 회 ]" << endl;
-
-        int current_error_code = NORMAL;
-        bool trigger_shutdown = false; 
-
-        if (total_vibrations <= 4) {
-            current_error_code = NORMAL;
-            cout << "【결과】 정상 작동 중" << endl;
-        } 
-        else if (total_vibrations >= 5 && total_vibrations <= 15) {
-            current_error_code = NEED_INSPECTION;
-            cout << "【결과】 ⚠️ 경고: 설비 육안 점검 필요 (에러코드: " << current_error_code << ")" << endl;
-        } 
-        else if (total_vibrations >= 16 && total_vibrations <= 30) {
-            current_error_code = IMMEDIATE_STOP;
-            critical_counter++;
-            cout << "【결과】 🚨 비상 진동 발생! 현재 누적 횟수: [ " << critical_counter << " / 4 회 ]" << endl;
-            
-            if (critical_counter >= 4) {
-                cout << "【최종 판단】 위험 진동이 4회 연속/누적되어 설비를 강제 정지합니다!" << endl;
-                trigger_shutdown = true;
-            }
-        }
-
-        // 균일 초기화(Uniform Initialization) 스타일 적용
-        VibrationLog current_log{ getCurrentTime(), total_vibrations, current_error_code };
-
-        // 4번 누적 셧다운 시 긴급 세이브 및 셧다운
-        if (trigger_shutdown) {
-            cout << "⚠️ [시스템 경고] 최종 셧다운 전 현재까지의 일반 가동 데이터를 안전하게 저장합니다." << endl;
-            
-            // 1. 버퍼 대피
-            if (!periodic_buffer.empty()) {
-                stringstream periodic_ss;
-                periodic_ss << getTimeForFilename() << "_1호기_INTERVAL_30M_이전데이터.csv";
-                string crash_backup_filename = periodic_ss.str();
-
-                ofstream pFile(crash_backup_filename);
-                if (pFile.is_open()) {
-                    // [C++11 변경] 범위 기반 for문(Range-based for loop) 적용
-                    for (const auto& log : periodic_buffer) {
-                        pFile << log.timestamp << ", 1, " 
-                              << log.total_vibrations << ", " 
-                              << log.error_code << "\n";
-                    }
-                    pFile.close();
-                    cout << "💾 [PRE-CRASH BACKUP] 가동 일지 대피 완료: [ " << crash_backup_filename << " ]" << endl;
-                }
-            }
-
-            // 2. 최종 비상 파일 생성
-            stringstream filename_stream;
-            filename_stream << getTimeForFilename() << "_1호기_CRITICAL_누적4회오류.csv";
-            string critical_filename = filename_stream.str();
-
-            ofstream logFile(critical_filename); 
-            if (logFile.is_open()) {
-                logFile << current_log.timestamp << ", 1, " << current_log.total_vibrations << ", " << current_log.error_code << "\n";
-                logFile.close(); 
-                cout << "🚨 [BLACKBOX] 4회 누적 비상 로그 파일 추출 완료: [ " << critical_filename << " ]" << endl;
-            }
-
-            cout << "\n[SYSTEM SHUTDOWN] 설비 위험 누적 한계 도달로 시스템을 강제 종료합니다." << endl;
-            exit(0); 
-        }
-
-        // 아직 4회가 안 되었다면 바구니에 누적
-        periodic_buffer.push_back(current_log);
-
-        sleep(3); 
-        elapsed_seconds += 3;
-
-        // 정기 주기 도래 시 저장 로직
-        if (elapsed_seconds >= SAVE_INTERVAL) {
-            stringstream filename_stream;
-            filename_stream << getTimeForFilename() << "_1호기_INTERVAL_30M.csv";
-            string periodic_filename = filename_stream.str();
-
-            ofstream periodicFile(periodic_filename);
-            if (periodicFile.is_open()) {
-                // [C++11 변경] 범위 기반 for문(Range-based for loop) 적용
-                for (const auto& log : periodic_buffer) {
-                    periodicFile << log.timestamp << ", 1, "
-                                 << log.total_vibrations << ", "
-                                 << log.error_code << "\n";
-                }
-                periodicFile.close();
-                cout << "💾 [PERIODIC BACKUP] 30분 정기 일반 가동 일지 생성 완료! -> [ " << periodic_filename << " ]" << endl;
-            }
-
-            periodic_buffer.clear();
-            elapsed_seconds = 0;
-        }
-        cout << "--------------------------------------------------" << endl;
+// ==========================================
+// 1. 진동 센서 클래스 (VibrationSensor)
+// ==========================================
+class VibrationSensor {
+public:
+    // 평소 기본 진동수(0~2회)를 측정하여 반환하는 함수
+    int getVibration() const {
+        return rand() % 3;
     }
+};
+
+
+// ==========================================
+// 2. 설비 모니터링 관리 클래스 (MachineMonitor)
+// ==========================================
+class MachineMonitor {
+private:
+    int machine_id;                  // 호기 번호 (예: 1호기, 2호기)
+    int critical_counter;            // 16회 이상 비상 진동 누적 카운터
+    int elapsed_seconds;             // 정기 저장을 위한 타이머
+    int save_interval;               // 저장 주기 (초)
+    vector<VibrationLog> periodic_buffer; // 메모리 데이터 바구니
+    VibrationSensor sensor1, sensor2, sensor3; // 설비에 장착된 3개의 센서 객체
+
+    // [헬퍼 함수] 파일 이름용 시간 포맷 (YYYYMMDD_HHMMSS)
+    string getTimeForFilename() const {
+        time_t now = time(nullptr);
+        struct tm tstruct = *localtime(&now);
+        char buf[80];
+        strftime(buf, sizeof(buf), "%Y%m%d_%H%M%S", &tstruct);
+        return string(buf);
+    }
+
+    // [헬퍼 함수] 로그 내부용 시간 포맷 (YYYY-MM-DD HH:MM:SS)
+    string getCurrentTime() const {
+        time_t now = time(nullptr);
+        struct tm tstruct = *localtime(&now);
+        char buf[80];
+        strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tstruct);
+        return string(buf);
+    }
+
+    // 정기 일반 가동 일지 저장 함수
+    void savePeriodicLog() {
+        if (periodic_buffer.empty()) return;
+
+        stringstream ss;
+        ss << getTimeForFilename() << "_" << machine_id << "호기_INTERVAL_30M.csv";
+        string filename = ss.str();
+
+        ofstream pFile(filename);
+        if (pFile.is_open()) {
+            for (const auto& log : periodic_buffer) {
+                pFile << log.timestamp << ", " << machine_id << ", "
+                      << log.total_vibrations << ", " << log.error_code << "\n";
+            }
+            pFile.close();
+            cout << "💾 [PERIODIC BACKUP] 정기 가동 일지 생성 완료! -> [ " << filename << " ]" << endl;
+        }
+        periodic_buffer.clear();
+        elapsed_seconds = 0;
+    }
+
+    // 강제 종료 직전 데이터 대피 함수
+    void savePreCrashLog() {
+        if (periodic_buffer.empty()) return;
+
+        stringstream ss;
+        ss << getTimeForFilename() << "_" << machine_id << "호기_INTERVAL_30M_이전데이터.csv";
+        string filename = ss.str();
+
+        ofstream pFile(filename);
+        if (pFile.is_open()) {
+            for (const auto& log : periodic_buffer) {
+                pFile << log.timestamp << ", " << machine_id << ", "
+                      << log.total_vibrations << ", " << log.error_code << "\n";
+            }
+            pFile.close();
+            cout << "💾 [PRE-CRASH BACKUP] 강제종료 직전 가동 일지 대피 완료: [ " << filename << " ]" << endl;
+        }
+    }
+
+    // 최종 비상 로그 파일 생성 함수
+    void saveCriticalLog(const VibrationLog& current_log) {
+        stringstream ss;
+        ss << getTimeForFilename() << "_" << machine_id << "호기_CRITICAL_누적4회오류.csv";
+        string filename = ss.str();
+
+        ofstream logFile(filename);
+        if (logFile.is_open()) {
+            logFile << current_log.timestamp << ", " << machine_id << ", "
+                    << current_log.total_vibrations << ", " << current_log.error_code << "\n";
+            logFile.close();
+            cout << "🚨 [BLACKBOX] 4회 누적 비상 로그 파일 추출 완료: [ " << filename << " ]" << endl;
+        }
+    }
+
+public:
+    // 생성자: 호기 번호와 저장 주기를 받아 초기화 세팅
+    MachineMonitor(int id, int interval_sec = 30) 
+        : machine_id(id), critical_counter(0), elapsed_seconds(0), save_interval(interval_sec) {}
+
+    // 모니터링 시스템을 구동하는 핵심 실행 함수
+    void run() {
+        cout << "==================================================" << endl;
+        cout << "  " << machine_id << "호기 이원화 저장 시스템 시스템 가동 (OOP 적용) " << endl;
+        cout << "==================================================" << endl;
+
+        while (true) {
+            cout << "\n[" << machine_id << "호기 실시간 모니터링 중... (" << elapsed_seconds << "초 경과)]" << endl;
+
+            // 각 센서 객체로부터 값을 읽어옴
+            int s1 = sensor1.getVibration();
+            int s2 = sensor2.getVibration();
+            int s3 = sensor3.getVibration();
+
+            // 20% 확률로 현장 돌발 충격 및 대형 모터 노이즈 연출
+            int machine_condition = rand() % 5;
+            if (machine_condition == 0) {
+                cout << "ℹ️ [현장 상황] 설비에 가벼운 일시적 충격 감지 (+6회)" << endl;
+                s1 += 3; s2 += 3;
+            } 
+            else if (machine_condition == 1) {
+                cout << "🚨 [현장 상황] 설비에 대형 모터 이상 진동 발생!!! (+18회)" << endl;
+                s1 += 6; s2 += 6; s3 += 6;
+            }
+
+            int total_vibrations = s1 + s2 + s3;
+            if (total_vibrations > 30) total_vibrations = 30;
+
+            cout << " -> 센서 현황 [ S1: " << s1 << "회 | S2: " << s2 << "회 | S3: " << s3 << "회 ]" << endl;
+            cout << " >> " << machine_id << "호기 누적 진동: [ " << total_vibrations << " 회 ]" << endl;
+
+            int current_error_code = NORMAL;
+            bool trigger_shutdown = false;
+
+            // 조건 진단 알고리즘
+            if (total_vibrations <= 4) {
+                current_error_code = NORMAL;
+                cout << "【결과】 정상 작동 중" << endl;
+            } 
+            else if (total_vibrations >= 5 && total_vibrations <= 15) {
+                current_error_code = NEED_INSPECTION;
+                cout << "【결과】 ⚠️ 경고: 설비 육안 점검 필요 (에러코드: " << current_error_code << ")" << endl;
+            } 
+            else if (total_vibrations >= 16 && total_vibrations <= 30) {
+                current_error_code = IMMEDIATE_STOP;
+                critical_counter++;
+                cout << "【결과】 🚨 비상 진동 발생! 현재 누적 횟수: [ " << critical_counter << " / 4 회 ]" << endl;
+                
+                if (critical_counter >= 4) {
+                    cout << "【최종 판단】 위험 진동이 4회 누적되어 설비를 강제 정지합니다!" << endl;
+                    trigger_shutdown = true;
+                }
+            }
+
+            VibrationLog current_log{ getCurrentTime(), total_vibrations, current_error_code };
+
+            // 4회 누적 셧다운 처리 로직
+            if (trigger_shutdown) {
+                cout << "⚠️ [시스템 경고] 최종 셧다운 전 현재까지의 데이터를 세이브합니다." << endl;
+                savePreCrashLog();        // 1. 버퍼 대피
+                saveCriticalLog(current_log); // 2. 비상 파일 생성
+                cout << "\n[SYSTEM SHUTDOWN] " << machine_id << "호기 위험 한계 도달로 시스템을 강제 종료합니다." << endl;
+                exit(0);
+            }
+
+            // 평소 데이터 버퍼링
+            periodic_buffer.push_back(current_log);
+
+            sleep(3);
+            elapsed_seconds += 3;
+
+            // 정기 저장 주기 판단
+            if (elapsed_seconds >= save_interval) {
+                savePeriodicLog();
+            }
+            cout << "--------------------------------------------------" << endl;
+        }
+    }
+};
+
+
+// ==========================================
+// 3. 메인 스위치 엔트리 포인트
+// ==========================================
+int main() {
+    srand(time(nullptr));
+
+    // 1호기 모니터링 객체 생성 (호기번호: 1, 정기저장주기: 30초 설정)
+    MachineMonitor monitor1(1, 30);
+    
+    // 모니터링 시스템 스타트!
+    monitor1.run();
 
     return 0;
 }
