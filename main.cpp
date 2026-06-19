@@ -16,14 +16,12 @@ enum ErrorCode {
     IMMEDIATE_STOP = 102   
 };
 
-// 30분 정기 저장 바구니에 담을 데이터 구조체 정의
 struct VibrationLog {
     string timestamp;
     int total_vibrations;
     int error_code;
 };
 
-// 파일 이름용 시간 포맷 (YYYYMMDD_HHMMSS)
 string getTimeForFilename() {
     time_t now = time(0);
     struct tm tstruct;
@@ -33,7 +31,6 @@ string getTimeForFilename() {
     return string(buf);
 }
 
-// 로그 텍스트 내부용 시간 포맷 (YYYY-MM-DD HH:MM:SS)
 string getCurrentTime() {
     time_t now = time(0);
     struct tm tstruct;
@@ -47,26 +44,21 @@ int main() {
     srand(time(NULL));
 
     cout << "==================================================" << endl;
-    cout << "  1호기 이원화 저장 시스템 가동 (정기 30분 백업 기능) " << endl;
+    cout << "  1호기 데이터 유실 방지(데이터 세이브) 시스템 가동 " << endl;
     cout << "==================================================" << endl;
 
-    // 30분 데이터를 모아둘 바구니(버퍼) 생성
     vector<VibrationLog> periodic_buffer;
-    int elapsed_seconds = 0; // 흘러간 시간을 체크할 누적 타이머
-
-    // ★ 실제 현업 주기는 30분 = 1800초입니다.
-    // ★ 테스트를 빠르게 해보기 위해 '30초'가 지나면 파일이 저장되도록 세팅했습니다.
-    int SAVE_INTERVAL = 30; 
+    int elapsed_seconds = 0; 
+    int SAVE_INTERVAL = 30; // 30초 주기 (실제 30분 가상)
 
     while (true) {
         cout << "\n[새로운 실시간 진동 모니터링 중... (" << elapsed_seconds << "초 경과)]" << endl;
 
-        // 평소 진동수 세팅 (0~2회)
         int sensor1 = rand() % 3; 
         int sensor2 = rand() % 3;
         int sensor3 = rand() % 3;
 
-        // 20% 확률로 기계 돌발 노이즈 상황 연출
+        // 돌발 상황 시뮬레이션 확률
         int machine_condition = rand() % 10;
         if (machine_condition == 0) {
             cout << "ℹ️ [현장 상황] 설비에 가벼운 일시적 충격 감지 (+6회)" << endl;
@@ -100,11 +92,31 @@ int main() {
             is_critical = true;
         }
 
-        // 현재 데이터를 임시 로그 구조체에 담기
         VibrationLog current_log = { getCurrentTime(), total_vibrations, current_error_code };
 
-        // [A타입 루트] 만약 치명적 에러(102)라면? -> 기다리지 않고 그 즉시 고유 파일 만들고 강제 종료!
+        // [수정 및 업그레이드 부분] 치명적 에러 발생 시 데이터 긴급 대피 로직
         if (is_critical) {
+            cout << "⚠️ [시스템 경고] 치명적 에러 감지! 종료 전 현재까지의 일반 데이터를 긴급 저장합니다." << endl;
+            
+            // 1. 꺼지기 전 바구니에 보관 중이던 일반 데이터를 먼저 파일로 출력 (유실 방지)
+            if (!periodic_buffer.empty()) {
+                stringstream periodic_ss;
+                periodic_ss << getTimeForFilename() << "_1호기_INTERVAL_30M_이전데이터.csv";
+                string crash_backup_filename = periodic_ss.str();
+
+                ofstream pFile(crash_backup_filename);
+                if (pFile.is_open()) {
+                    for (size_t i = 0; i < periodic_buffer.size(); ++i) {
+                        pFile << periodic_buffer[i].timestamp << ", 1, " 
+                              << periodic_buffer[i].total_vibrations << ", " 
+                              << periodic_buffer[i].error_code << "\n";
+                    }
+                    pFile.close();
+                    cout << "💾 [PRE-CRASH BACKUP] 강제종료 직전 가동 일지 대피 완료: [ " << crash_backup_filename << " ]" << endl;
+                }
+            }
+
+            // 2. 그 후 최종 치명적 에러(CRITICAL) 파일 생성
             stringstream filename_stream;
             filename_stream << getTimeForFilename() << "_1호기_CRITICAL.csv";
             string critical_filename = filename_stream.str();
@@ -115,19 +127,18 @@ int main() {
                 logFile.close(); 
                 cout << "🚨 [BLACKBOX] 비상 로그 파일 즉시 추출 완료: [ " << critical_filename << " ]" << endl;
             }
+
             cout << "\n[SYSTEM SHUTDOWN] 치명적 에러로 시스템을 강제 종료합니다." << endl;
             exit(0); 
         }
 
-        // [B타입 루트] 평소 일반/경고 데이터는 바구니(버퍼)에 저장해 둠
+        // 평소 일반 데이터는 바구니에 안전하게 세이브
         periodic_buffer.push_back(current_log);
 
-
-        // 3초 대기했으니 경과 시간에 3초 추가
         sleep(3); 
         elapsed_seconds += 3;
 
-        // --- [정기 저장 핵심 코드] 설정한 주기(30초 = 실제 30분 가상)가 다 되었을 때 ---
+        // 정기 30분 주기 도래 시 정상 저장 로직 (기존과 동일)
         if (elapsed_seconds >= SAVE_INTERVAL) {
             stringstream filename_stream;
             filename_stream << getTimeForFilename() << "_1호기_INTERVAL_30M.csv";
@@ -135,20 +146,15 @@ int main() {
 
             ofstream periodicFile(periodic_filename);
             if (periodicFile.is_open()) {
-                // 바구니에 담아둔 그동안의 일반 정상 데이터를 한 번에 쏟아부어 파일로 기록합니다.
                 for (size_t i = 0; i < periodic_buffer.size(); ++i) {
-                    periodicFile << periodic_buffer[i].timestamp << ", "
-                                 << "1, "
+                    periodicFile << periodic_buffer[i].timestamp << ", 1, "
                                  << periodic_buffer[i].total_vibrations << ", "
                                  << periodic_buffer[i].error_code << "\n";
                 }
                 periodicFile.close();
                 cout << "💾 [PERIODIC BACKUP] 30분 정기 일반 가동 일지 생성 완료! -> [ " << periodic_filename << " ]" << endl;
-            } else {
-                cout << "❌ 정기 파일 생성 실패!" << endl;
             }
 
-            // 파일로 보냈으니 다음 30분을 위해 바구니와 타이머를 비워줍니다.
             periodic_buffer.clear();
             elapsed_seconds = 0;
         }
