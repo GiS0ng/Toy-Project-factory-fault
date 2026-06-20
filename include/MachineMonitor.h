@@ -34,6 +34,7 @@ private:
 public:
     MachineMonitor(int id, int interval_sec = 30);
     void run();
+    void runTestScenario(const std::vector<int>& mock_vibrations);
 };
 
 #endif
