@@ -5,8 +5,9 @@
 #include <string>
 #include <vector>
 #include "ErrorCode.h"
-#include "VibrationSensor.h"
+#include "IVibrationSensor.h"
 
+// 로그 구조체 선언
 struct VibrationLog {
     std::string timestamp;
     int total_vibrations;
@@ -21,20 +22,22 @@ private:
     int save_interval;
     std::vector<VibrationLog> periodic_buffer;
     
-    // 센서 객체 3개 장착
-    VibrationSensor sensor1, sensor2, sensor3;
+    // 다형성을 위해 부모 인터페이스 포인터로 센서들을 가리킴
+    IVibrationSensor* sensor1;
+    IVibrationSensor* sensor2;
+    IVibrationSensor* sensor3;
 
-    // 내부 헬퍼 함수들
     std::string getTimeForFilename() const;
     std::string getCurrentTime() const;
     void savePeriodicLog();
     void savePreCrashLog();
-    void saveCriticalLog(const VibrationLog& current_log);
+    
+    // 에러 수정: 인자 타입을 명확히 VibrationLog 구조체로 지정
+    void saveCriticalLog(const VibrationLog& current_log); 
 
 public:
-    MachineMonitor(int id, int interval_sec = 30);
-    void run();
-    void runTestScenario(const std::vector<int>& mock_vibrations);
+    MachineMonitor(int id, IVibrationSensor* s1, IVibrationSensor* s2, IVibrationSensor* s3, int interval_sec = 30);
+    void run(bool is_test_mode = false); 
 };
 
 #endif

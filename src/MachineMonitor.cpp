@@ -1,4 +1,3 @@
-// src/MachineMonitor.cpp
 #include "../include/MachineMonitor.h"
 #include <iostream>
 #include <fstream>
@@ -6,11 +5,13 @@
 #include <iomanip>
 #include <sstream>
 #include <ctime>
+#include <cstdlib>
 
 using namespace std;
 
-MachineMonitor::MachineMonitor(int id, int interval_sec) 
-    : machine_id(id), critical_counter(0), elapsed_seconds(0), save_interval(interval_sec) {}
+MachineMonitor::MachineMonitor(int id, IVibrationSensor* s1, IVibrationSensor* s2, IVibrationSensor* s3, int interval_sec) 
+    : machine_id(id), critical_counter(0), elapsed_seconds(0), save_interval(interval_sec),
+      sensor1(s1), sensor2(s2), sensor3(s3) {}
 
 string MachineMonitor::getTimeForFilename() const {
     time_t now = time(nullptr);
@@ -66,6 +67,7 @@ void MachineMonitor::savePreCrashLog() {
     }
 }
 
+// 오타 수정 완료: 인자 타입을 구조체(VibrationLog)로 완벽 매칭
 void MachineMonitor::saveCriticalLog(const VibrationLog& current_log) {
     stringstream ss;
     ss << getTimeForFilename() << "_" << machine_id << "호기_CRITICAL_누적4회오류.csv";
@@ -80,33 +82,39 @@ void MachineMonitor::saveCriticalLog(const VibrationLog& current_log) {
     }
 }
 
-void MachineMonitor::run() {
+void MachineMonitor::run(bool is_test_mode) {
     cout << "==================================================" << endl;
-    cout << "  " << machine_id << "호기 이원화 저장 시스템 가동 (폴더 구조화 적용) " << endl;
+    cout << "  " << machine_id << "호기 모니터링 시스템 (" 
+         << (is_test_mode ? "🧪 테스트 모드" : "🏭 실제 현장 모드") << " 가동)" << endl;
     cout << "==================================================" << endl;
 
     while (true) {
-        cout << "\n[" << machine_id << "호기 실시간 모니터링 중... (" << elapsed_seconds << "초 경과)]" << endl;
+        cout << "\n[" << machine_id << "호기 실시간 감시 중... (" << elapsed_seconds << "초 경과)]" << endl;
 
-        int s1 = sensor1.getVibration();
-        int s2 = sensor2.getVibration();
-        int s3 = sensor3.getVibration();
-
-        int machine_condition = rand() % 5;
-        if (machine_condition == 0) {
-            cout << "ℹ️ [현장 상황] 설비에 가벼운 일시적 충격 감지 (+6회)" << endl;
-            s1 += 3; s2 += 3;
-        } 
-        else if (machine_condition == 1) {
-            cout << "🚨 [현장 상황] 설비에 대형 모터 이상 진동 발생!!! (+18회)" << endl;
-            s1 += 6; s2 += 6; s3 += 6;
-        }
+        // 인터페이스의 순수 가상 함수를 통해 실시간 진동값을 자식으로부터 다형성 호출
+        int s1 = sensor1->getVibration();
+        int s2 = sensor2->getVibration();
+        int s3 = sensor3->getVibration();
 
         int total_vibrations = s1 + s2 + s3;
+
+        if (!is_test_mode) {
+            int machine_condition = rand() % 5;
+            if (machine_condition == 0) {
+                cout << "ℹ️ [현장 상황] 설비에 가벼운 일시적 충격 감지 (+6회)" << endl;
+                s1 += 3; s2 += 3;
+            } 
+            else if (machine_condition == 1) {
+                cout << "🚨 [현장 상황] 설비에 대형 모터 이상 진동 발생!!! (+18회)" << endl;
+                s1 += 6; s2 += 6; s3 += 6;
+            }
+            total_vibrations = s1 + s2 + s3;
+        }
+
         if (total_vibrations > 30) total_vibrations = 30;
 
-        cout << " -> 센서 현황 [ S1: " << s1 << "회 | S2: " << s2 << "회 | S3: " << s3 << "회 ]" << endl;
-        cout << " >> " << machine_id << "호기 누적 진동: [ " << total_vibrations << " 회 ]" << endl;
+        cout << " -> 센서 상세 [ S1: " << s1 << "회 | S2: " << s2 << "회 | S3: " << s3 << "회 ]" << endl;
+        cout << " >> 총합 진동수: [ " << total_vibrations << " 회 ]" << endl;
 
         int current_error_code = NORMAL;
         bool trigger_shutdown = false;
@@ -117,7 +125,7 @@ void MachineMonitor::run() {
         } 
         else if (total_vibrations >= 5 && total_vibrations <= 15) {
             current_error_code = NEED_INSPECTION;
-            cout << "【결과】 ⚠️ 경고: 설비 육안 점검 필요 (에러코드: " << current_error_code << ")" << endl;
+            cout << "【결과】 ⚠️ 경고: 설비 육안 점검 필요" << endl;
         } 
         else if (total_vibrations >= 16 && total_vibrations <= 30) {
             current_error_code = IMMEDIATE_STOP;
@@ -125,24 +133,29 @@ void MachineMonitor::run() {
             cout << "【결과】 🚨 비상 진동 발생! 현재 누적 횟수: [ " << critical_counter << " / 4 회 ]" << endl;
             
             if (critical_counter >= 4) {
-                cout << "【최종 판단】 위험 진동이 4회 누적되어 설비를 강제 정지합니다!" << endl;
+                cout << "【최종 판단】 위험 누적 한계 도달로 설비를 정지합니다!" << endl;
                 trigger_shutdown = true;
             }
         }
 
+        // 에러 수정: 이제 VibrationLog 타입을 완벽하게 인식합니다.
         VibrationLog current_log{ getCurrentTime(), total_vibrations, current_error_code };
 
         if (trigger_shutdown) {
-            cout << "⚠️ [시스템 경고] 최종 셧다운 전 현재까지의 데이터를 세이브합니다." << endl;
+            cout << "⚠️ [시스템 경고] 최종 셧다운 전 데이터를 세이브합니다." << endl;
             savePreCrashLog();        
             saveCriticalLog(current_log); 
-            cout << "\n[SYSTEM SHUTDOWN] " << machine_id << "호기 위험 한계 도달로 시스템을 강제 종료합니다." << endl;
-            exit(0);
+            cout << "\n[SYSTEM SHUTDOWN] 시스템을 종료합니다." << endl;
+            
+            if (is_test_mode) return; 
+            else exit(0);
         }
 
         periodic_buffer.push_back(current_log);
 
-        sleep(3);
+        if (!is_test_mode) {
+            sleep(3);
+        }
         elapsed_seconds += 3;
 
         if (elapsed_seconds >= save_interval) {
@@ -150,62 +163,4 @@ void MachineMonitor::run() {
         }
         cout << "--------------------------------------------------" << endl;
     }
-}
-// 무한루프 대신, 우리가 던져준 진동수 배열(mock_vibrations)을 순서대로 소화하며 검증하는 테스트 함수
-void MachineMonitor::runTestScenario(const  std::vector<int>& mock_vibrations) {
-    cout << "\n==================================================" << endl;
-    cout << "🧪 [TEST START] 사용자 정의 시나리오 테스트를 시작합니다." << endl;
-    cout << "==================================================" << endl;
-
-    // 배열에 든 가짜 진동 값을 하나씩 꺼내어 테스트 진행
-    for (int fake_total : mock_vibrations) {
-        cout << "\n[테스트 입력] 가상 주입된 총 진동수: [ " << fake_total << " 회 ] (" << elapsed_seconds << "초 경과)" << endl;
-
-        int current_error_code = NORMAL;
-        bool trigger_shutdown = false;
-
-        // 1. 우리가 만든 조건 진단 알고리즘 검증
-        if (fake_total <= 4) {
-            current_error_code = NORMAL;
-            cout << "【판정】 정상 작동 (기대값: 0 | 결과: " << current_error_code << ")" << endl;
-        } 
-        else if (fake_total >= 5 && fake_total <= 15) {
-            current_error_code = NEED_INSPECTION;
-            cout << "【판정】 ⚠️ 육안 점검 필요 (기대값: 101 | 결과: " << current_error_code << ")" << endl;
-        } 
-        else if (fake_total >= 16 && fake_total <= 30) {
-            current_error_code = IMMEDIATE_STOP;
-            critical_counter++;
-            cout << "【판정】 🚨 비상 진동! 현재 에러 누적: [ " << critical_counter << " / 4 회 ]" << endl;
-            
-            if (critical_counter >= 4) {
-                cout << "【최종 판단】 💥 위험 누적 한계 도달! 셧다운 트리거 발동!" << endl;
-                trigger_shutdown = true;
-            }
-        }
-
-        VibrationLog current_log{ getCurrentTime(), fake_total, current_error_code };
-
-        // 2. 4회 누적 셧다운 및 데이터 대피 기능 검증
-        if (trigger_shutdown) {
-            cout << "[알림] 최종 셧다운 전 가동 데이터 대피 및 블랙박스 추출 테스트를 진행합니다." << endl;
-            savePreCrashLog();        // 버퍼 대피 파일 생성 검증
-            saveCriticalLog(current_log); // 블랙박스 파일 생성 검증
-            cout << "🏆 [TEST SUCCESS] 4회 누적 셧다운 및 데이터 유실 방지 테스트 성공!" << endl;
-            return; // 테스트 성공 후 안전하게 종료 (exit 대신 return으로 테스트 마무리)
-        }
-
-        // 평소 데이터 버퍼링
-        periodic_buffer.push_back(current_log);
-        elapsed_seconds += 3; // 시뮬레이션 시간 증가
-
-        // 3. 정기 저장 주기(30초) 도래 시 파일 생성 검증
-        if (elapsed_seconds >= save_interval) {
-            cout << "⏰ [주기 도래] 설정한 저장 주기가 되어 정기 저장을 테스트합니다." << endl;
-            savePeriodicLog();
-        }
-        cout << "--------------------------------------------------" << endl;
-    }
-
-    cout << "\n⚠️ [TEST END] 모든 시나리오 데이터가 소모되었으나 셧다운 조건에 도달하지 않았습니다." << endl;
 }
