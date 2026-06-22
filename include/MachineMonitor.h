@@ -14,12 +14,12 @@ struct VibrationLog {
 };
 
 class MachineMonitor {
-private:
-    int machine_id;
-    int critical_counter;
-    int elapsed_seconds;
-    int save_interval;
-    std::vector<VibrationLog> periodic_buffer;
+private: //외부에서 접근 불가하도록 하는 변수
+    int machine_id; // 기기 식별 번호
+    int critical_counter;   // 에러 카운터 
+    int elapsed_seconds; //누적 시간 추적
+    int save_interval; //정기 저장주기 
+    std::vector<VibrationLog> periodic_buffer; //메모리 임시 저장소 버퍼 개념
     
     // 센서 객체 3개 장착
     VibrationSensor sensor1, sensor2, sensor3;
