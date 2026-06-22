@@ -1,26 +1,44 @@
 #include <iostream>
-#include <vector>
+#include <cstdlib>
+#include <ctime>
 #include "include/MachineMonitor.h"
+#include "include/IVibrationSensor.h"
+
+using namespace std;
+
+// [진짜 현장용 센서]
+class RealSensor : public IVibrationSensor {
+public:
+    virtual int getVibration() override { return rand() % 3; }
+};
+
+// [테스트용 가전 값 고정 센서]
+class FixedValueSensor : public IVibrationSensor {
+private:
+    int val;
+public:
+    FixedValueSensor(int v) : val(v) {}
+    virtual int getVibration() override { return val; }
+};
 
 int main() {
-    // 1호기 모니터 객체 생성 (호기번호: 1, 정기저장주기: 15초로 짧게 세팅하여 테스트)
-    MachineMonitor monitor1(1, 15);
+    srand(time(nullptr));
 
-    // 🧪 우리가 검증하고 싶은 가짜 진동 데이터 시나리오 배열 생성
-    // 순서대로 정상 -> 정상 -> 경고 -> 비상 -> 비상 -> 비상 -> 비상(여기서 터져야 함)
-    std::vector<int> test_scenario = {
-        2,  // 1. 정상 (0초)
-        3,  // 2. 정상 (3초)
-        12, // 3. 경고 (6초)
-        25, // 4. 비상 1회 누적 (9초)
-        4,  // 5. 정상 (12초) -> 이 시점에 누적 12초이므로 다음 턴(15초)에 정기 저장이 터져야 함!
-        28, // 6. 비상 2회 누적 (15초, 정기저장 타이머 리셋됨)
-        18, // 7. 비상 3회 누적 (3초)
-        22  // 8. 비상 4회 누적 (6초) -> ★ 여기서 최종 대피 파일들이 만들어지고 성공 메시지가 떠야 함!
-    };
+    // 0: 실제 공장 모드, 1: 시나리오 테스트 모드
+    int mode = 1; 
 
-    // 준비된 테스트 시나리오 가동!
-    monitor1.runTestScenario(test_scenario);
+    if (mode == 0) {
+        RealSensor s1, s2, s3;
+        MachineMonitor monitor1(1, &s1, &s2, &s3, 30);
+        monitor1.run(false); 
+    } 
+    else if (mode == 1) {
+        // 무조건 센서당 6씩 뱉어서 총 18회(비상) 유발 테스트
+        FixedValueSensor mock_s1(6), mock_s2(6), mock_s3(6);
+        
+        MachineMonitor test_monitor(1, &mock_s1, &mock_s2, &mock_s3, 15);
+        test_monitor.run(true); 
+    }
 
     return 0;
 }
