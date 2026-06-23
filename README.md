@@ -6,7 +6,7 @@
 단순 감시에 그치지 않고 데이터 유실 방지(Data Integrity)를 위한 임시 버퍼링(Buffering) 메커니즘과 오작동 필터링(Fault Tolerance) 누적 카운터를 탑재하여 시스템의 견고함 추가.
 
 ## 2. 데이터 흐름 및 이원화 저장 아키텍처
-###전체 아키텍처 구조 (c++ => python => SaaS(notion,kakaotalk))
+### 전체 아키텍처 구조 (c++ => python => SaaS(notion,kakaotalk))
 데이터의 성격과 활용 목적에 따라 파일 저장 시스템을 완전히 분리하는 이원화 구조
 ## 3. 핵심 알고리즘 및 예외 처리 로직
 
