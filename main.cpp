@@ -25,7 +25,7 @@ int main() {
     srand(time(nullptr));
 
     // 0: 실제 공장 모드, 1: 시나리오 테스트 모드
-    int mode = 1; 
+    int mode = 0; 
 
     if (mode == 0) {
         RealSensor s1, s2, s3;
