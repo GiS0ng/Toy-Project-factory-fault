@@ -3,3 +3,4 @@ factory_run
 *.exe
 *.o
 *.csv
+data_queue/
