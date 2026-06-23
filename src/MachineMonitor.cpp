@@ -8,8 +8,9 @@
 #include <cstdlib>
 
 using namespace std;
-
+// 생성자 함수 선언부 생성자 함수를 이용해 객체네 변수들을 초기화 
 MachineMonitor::MachineMonitor(int id, IVibrationSensor* s1, IVibrationSensor* s2, IVibrationSensor* s3, int interval_sec) 
+    // : 뒷 부분 초기화 리스트
     : machine_id(id), critical_counter(0), elapsed_seconds(0), save_interval(interval_sec),
       sensor1(s1), sensor2(s2), sensor3(s3) {}
 
@@ -45,7 +46,7 @@ void MachineMonitor::savePeriodicLog() {
         pFile.close();
         cout << "💾 [PERIODIC BACKUP] 정기 가동 일지 생성 완료! -> [ " << filename << " ]" << endl;
     }
-    periodic_buffer.clear();
+    periodic_buffer.clear(); //메모리 리셋 
     elapsed_seconds = 0;
 }
 
@@ -154,7 +155,7 @@ void MachineMonitor::run(bool is_test_mode) {
         periodic_buffer.push_back(current_log);
 
         if (!is_test_mode) {
-            sleep(3);
+            sleep(3); // 연산 휴식
         }
         elapsed_seconds += 3;
 
