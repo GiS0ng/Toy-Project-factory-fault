@@ -1,0 +1,10 @@
+# 깃허브 관리 대상에서 제외할 파일 목록
+factory_run
+*.exe
+*.o
+*.csv
+data_queue/
+# .gitignore
+.env
+__pycache__/
+*.pyc
