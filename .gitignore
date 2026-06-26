@@ -4,3 +4,7 @@ factory_run
 *.o
 *.csv
 data_queue/
+# .gitignore
+.env
+__pycache__/
+*.pyc
