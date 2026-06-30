@@ -3,7 +3,9 @@ import os
 
 # 모듈들의 상대경로 임포트가 꼬이지 않도록 파이썬 환경(sys.path)에 현재 디렉토리를 주입합니다.
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.append(current_dir)
 from network.socket_server import SmartFactoryBridge
 
 if __name__ == "__main__":

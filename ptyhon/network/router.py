@@ -1,4 +1,4 @@
-from services.notion_client import NotionClient
+from config.notion_client import NotionClient 
 from services.alarm_service import AlarmService
 
 class FactoryRouter:

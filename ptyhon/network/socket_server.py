@@ -1,4 +1,6 @@
+# ptyhon/network/socket_server.py
 import socket
+import threading
 from config import settings
 from network.router import FactoryRouter
 
@@ -8,29 +10,29 @@ class SmartFactoryBridge:
         self.port = settings.PORT
         self.router = FactoryRouter()
 
+    def handle_client(self, client_socket, addr):
+        try:
+            with client_socket:
+                data = client_socket.recv(1024)
+                if data:
+                    decoded_msg = data.decode('utf-8')
+                    self.router.parse_and_route(decoded_msg)
+        except Exception as e:
+            print(f"⚠️ 클라이언트 통신 에러 ({addr}): {e}")
+
     def start(self):
-        """서버 소켓을 열고 현장 C++ 엔진의 로그 데이터를 무한 루프로 대기합니다."""
+        # socket.SOCK_STREAM 으로 수정 (socket. 접두어 추가)
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server_socket.bind((self.host, self.port))
-            server_socket.listen()
+            server_socket.listen(5)
             
             print("==================================================")
-            print("🤖 Smart Factory Data Bridge Python Server v5.0")
+            print("🤖 Smart Factory Data Bridge Python Server")
             print(f"📡 수신 대기 주소 ➔ {self.host}:{self.port}")
-            print(" 현장 C++ 엔진의 소켓 연결을 기다리는 중... (종료: Ctrl+C)")
             print("==================================================")
 
             while True:
-                try:
-                    client_socket, addr = server_socket.accept()
-                    with client_socket:
-                        data = client_socket.recv(1024)
-                        if not data:
-                            continue
-                        decoded_msg = data.decode('utf-8')
-                        
-                        # 라우터 객체에게 패킷 파싱 및 분기를 위임합니다.
-                        self.router.parse_and_route(decoded_msg)
-                except Exception as e:
-                    print(f"⚠️ 연결 처리 중 에러 발생: {e}")
+                client_sock, addr = server_socket.accept()
+                client_thread = threading.Thread(target=self.handle_client, args=(client_sock, addr))
+                client_thread.start()
