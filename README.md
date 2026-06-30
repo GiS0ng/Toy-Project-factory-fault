@@ -42,3 +42,21 @@
 3. **내장형 DB 적재 (SQLite)**: `sqlite3` 라이브러리를 활용하여 가볍고 빠르게 데이터를 테이블에 적재하고, 최종적으로 원격 대형 DB(PostgreSQL 등)로의 마이그레이션 구조를 설계합니다.
 4. **SaaS 연동** 데일리 보고서 및 긴급알림 SaaS연동을 통해 전체적인 아키텍처 구현 
 
+
+
+project/
+│
+├── .env                  # 토큰 및 DB_ID (Git 업로드 제외)
+├── .gitignore            # Git 제외 명단 (.env 등 포함)
+├── main.py               # 🚀 프로그램 전체 실행 파일 (엔트리 포인트)
+│
+├── config/               # [설정 폴더]
+│   └── settings.py       # 환경변수 로드 및 검증
+│
+├── services/             # [기능/비즈니스 로직 폴더]
+│   ├── notion_client.py  # 노션 API 전송 담당
+│   └── alarm_service.py  # 카카오톡 등 알림 담당
+│
+└── network/              # [네트워크 통신 폴더]
+    ├── socket_server.py  # 소켓 열고 데이터 수신 담당
+    └── router.py         # 패킷 파싱 및 분기 담당
