@@ -9,14 +9,33 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <cstring>
+#include <algorithm>
 
 using namespace std;
 
+// 1. 생성자 구현
 MachineMonitor::MachineMonitor(int id, IVibrationSensor* s1, IVibrationSensor* s2, IVibrationSensor* s3, int intervalSec) 
     : machineId(id), criticalCounter(0), elapsedSeconds(0), saveInterval(intervalSec),
       sensor1(s1), sensor2(s2), sensor3(s3) {}
 
-// --- [통신 로직 통합] ---
+// 2. 시간 관련 헬퍼 함수
+string MachineMonitor::getCurrentTime() const {
+    time_t now = time(nullptr);
+    struct tm tstruct = *localtime(&now);
+    char buf[80];
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tstruct);
+    return string(buf);
+}
+
+string MachineMonitor::getTimeForFilename() const {
+    time_t now = time(nullptr);
+    struct tm tstruct = *localtime(&now);
+    char buf[80];
+    strftime(buf, sizeof(buf), "%Y%m%d_%H%M%S", &tstruct);
+    return string(buf);
+}
+
+// 3. 파이썬 전송 함수 (소켓)
 void MachineMonitor::sendToPython(const string& type, int vibration, int errorCode) {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) return;
@@ -30,26 +49,11 @@ void MachineMonitor::sendToPython(const string& type, int vibration, int errorCo
     if (connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) >= 0) {
         string payload = type + "," + to_string(machineId) + "," + to_string(vibration) + "," + to_string(errorCode);
         send(sock, payload.c_str(), payload.length(), 0);
-        cout << "📡 [Network] Python 브릿지로 전송 성공 (" << type << ")" << endl;
     }
     close(sock);
 }
 
-// --- [기존 로깅 함수들 생략 - 구조는 동일함] ---
-string MachineMonitor::getCurrentTime() const {
-    time_t now = time(nullptr);
-    struct tm tstruct = *localtime(&now);
-    char buf[80]; strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tstruct);
-    return string(buf);
-}
-
-string MachineMonitor::getTimeForFilename() const {
-    time_t now = time(nullptr);
-    struct tm tstruct = *localtime(&now);
-    char buf[80]; strftime(buf, sizeof(buf), "%Y%m%d_%H%M%S", &tstruct);
-    return string(buf);
-}
-
+// 4. 로그 저장 함수들
 void MachineMonitor::savePeriodicLog() {
     if (periodicBuffer.empty()) return;
     string filename = "data_queue/periodic_" + to_string(machineId) + "_" + getTimeForFilename() + ".csv";
@@ -73,52 +77,52 @@ void MachineMonitor::saveCriticalLog(const VibrationLog& currentLog) {
     }
 }
 
-// --- [핵심 실행 루프] ---
+// 5. 핵심 메인 루프 (ISO 10816-3 적용)
 void MachineMonitor::run() {
-    cout << "🚀 [" << machineId << "호기] 모니터링 엔진 가동..." << endl;
+    cout << "🏭 ISO 10816-3 표준 기반 모니터링 엔진 가동..." << endl;
 
     while (true) {
-        // 1. 센서 데이터 수집
         int v1 = sensor1->getVibration();
         int v2 = sensor2->getVibration();
         int v3 = sensor3->getVibration();
-        int totalVibrations = v1 + v2 + v3;
-        if (totalVibrations > 30) totalVibrations = 30;
 
-        // 2. 상태 판별 및 에러 코드 설정
-        int currentErrorCode = NORMAL;
-        string statusMsg = "정상";
+        int maxVib = max({v1, v2, v3});
+        
+        string packetHeader = "PERIODIC";
+        int currentErrorCode = 0; // ISO_NORMAL
+        string statusMsg = "🟢 [NORMAL]";
 
-        if (totalVibrations >= 16) {
-            currentErrorCode = IMMEDIATE_STOP;
+        if (maxVib >= 600) {
+            packetHeader = "CRITICAL";
+            currentErrorCode = 2; // ISO_CRITICAL
+            statusMsg = "🚨 [CRITICAL]";
             criticalCounter++;
-            statusMsg = "🚨 비상 정지 위기 (누적: " + to_string(criticalCounter) + "/4)";
-        } else if (totalVibrations >= 5) {
-            currentErrorCode = NEED_INSPECTION;
-            statusMsg = "⚠️ 점검 필요";
+        } 
+        else if (maxVib >= 400) {
+            packetHeader = "WARNING";
+            currentErrorCode = 1; // ISO_WARNING
+            statusMsg = "🟡 [WARNING]";
             criticalCounter = 0;
-        } else {
+        } 
+        else {
             criticalCounter = 0;
         }
 
-        VibrationLog currentLog{ getCurrentTime(), totalVibrations, currentErrorCode };
-        periodicBuffer.push_back(currentLog);
+        cout << "\n[" << getCurrentTime() << "] " << statusMsg << " Max: " << maxVib << " μm/s" << endl;
 
-        // 3. 실시간 화면 출력 및 파이썬 전송
-        cout << "\n[" << currentLog.timestamp << "] 진동: " << totalVibrations << " | 상태: " << statusMsg << endl;
-        
-        // 4. 상황별 분기 처리
+        // 파이썬 전송
+        sendToPython(packetHeader, maxVib, currentErrorCode);
+
+        // 위험 누적 시 종료
         if (criticalCounter >= 4) {
-            cout << "❌ [SYSTEM SHUTDOWN] 치명적 오류로 설비를 정지합니다." << endl;
-            saveCriticalLog(currentLog);
-            sendToPython("CRITICAL", totalVibrations, currentErrorCode);
+            cout << "❌ 위험 수치 누적으로 시스템을 정지합니다." << endl;
+            saveCriticalLog({getCurrentTime(), maxVib, currentErrorCode});
             exit(0);
         }
 
-        // 3초마다 정기 전송
-        sendToPython("PERIODIC", totalVibrations, currentErrorCode);
-
-        // 5. 정기 파일 저장 체크 (설정된 주기에 도달하면)
+        // 데이터 버퍼링 및 정기 저장
+        periodicBuffer.push_back({getCurrentTime(), maxVib, currentErrorCode});
+        
         if (elapsedSeconds >= saveInterval) {
             savePeriodicLog();
         }

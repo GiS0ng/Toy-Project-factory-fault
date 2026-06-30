@@ -1,5 +1,6 @@
 # 깃허브 관리 대상에서 제외할 파일 목록
 factory_run
+factory_monitor
 *.exe
 *.o
 *.csv

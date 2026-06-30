@@ -1,11 +1,10 @@
-// include/ErrorCode.h
 #ifndef ERROR_CODE_H
 #define ERROR_CODE_H
 
 enum ErrorCode {
-    NORMAL = 0,
-    NEED_INSPECTION = 101, 
-    IMMEDIATE_STOP = 102   
+    ISO_NORMAL = 0,    // Grade A/B (0~399)
+    ISO_WARNING = 1,   // Grade C (400~599)
+    ISO_CRITICAL = 2   // Grade D (600~800)
 };
 
 #endif
