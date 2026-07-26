@@ -7,6 +7,7 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "../../.env"))
 
 NOTION_TOKEN = os.getenv("NOTION_TOKEN")
 DATABASE_ID = os.getenv("DATABASE_ID")
+REPORT_PARENT_PAGE_ID = os.getenv("NOTION_REPORT_PARENT_PAGE_ID")
 HOST = "127.0.0.1"
 PORT = 9999
 

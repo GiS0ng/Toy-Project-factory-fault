@@ -53,3 +53,82 @@ class NotionClient:
         except requests.RequestException as error:
             print(f"  ➔ ❌ Notion 전송 중 네트워크 오류 발생: {error}")
             return False
+
+    def query_events(self, start_time, end_time):
+        """지정한 기간에 생성된 설비 이벤트를 모두 조회한다."""
+        api_url = f"https://api.notion.com/v1/databases/{settings.DATABASE_ID}/query"
+        payload = {
+            "page_size": 100,
+            "filter": {
+                "and": [
+                    {
+                        "timestamp": "created_time",
+                        "created_time": {"on_or_after": start_time},
+                    },
+                    {
+                        "timestamp": "created_time",
+                        "created_time": {"before": end_time},
+                    },
+                ]
+            },
+        }
+        events = []
+
+        try:
+            while True:
+                response = requests.post(
+                    api_url,
+                    headers=self.headers,
+                    json=payload,
+                    timeout=10,
+                )
+                if response.status_code != 200:
+                    print(
+                        "  ➔ 🔴 [Notion API 오류] 이벤트 조회 실패: "
+                        f"{response.status_code}, {response.text}"
+                    )
+                    return None
+
+                result = response.json()
+                events.extend(result.get("results", []))
+                if not result.get("has_more"):
+                    return events
+
+                payload["start_cursor"] = result.get("next_cursor")
+        except requests.RequestException as error:
+            print(f"  ➔ ❌ Notion 이벤트 조회 중 네트워크 오류 발생: {error}")
+            return None
+
+    def create_report_page(self, title, children):
+        """설정된 보고서 부모 페이지 아래에 보고서 하위 페이지를 생성한다."""
+        if not settings.REPORT_PARENT_PAGE_ID:
+            print("❌ NOTION_REPORT_PARENT_PAGE_ID가 설정되지 않았습니다.")
+            return False
+
+        payload = {
+            "parent": {"page_id": settings.REPORT_PARENT_PAGE_ID},
+            "properties": {
+                "title": [{"text": {"content": title}}],
+            },
+            "children": children,
+        }
+
+        try:
+            response = requests.post(
+                self.api_url,
+                headers=self.headers,
+                json=payload,
+                timeout=10,
+            )
+            if response.status_code == 200:
+                print(f"  ➔ 🟢 [Notion 성공] 보고서가 생성되었습니다: {title}")
+                return True
+
+            print(
+                "  ➔ 🔴 [Notion API 오류] 보고서 생성 실패: "
+                f"{response.status_code}, {response.text}"
+            )
+            return False
+        except requests.RequestException as error:
+            print(f"  ➔ ❌ Notion 보고서 생성 중 네트워크 오류 발생: {error}")
+            return False

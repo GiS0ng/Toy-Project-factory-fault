@@ -24,6 +24,17 @@
 ### ③ Python 브리지 전송 재시도 큐
 Python 브리지 연결 또는 전송이 실패하면 패킷을 `data_queue/network_retry/`에 `pending_*.packet`으로 저장합니다. 다음 이벤트 수신 시 보류 패킷을 먼저 재전송하며, 성공한 파일은 삭제하지 않고 `sent_*.packet`으로 상태를 변경해 전송 이력을 보존합니다.
 
+### ④ Notion 데일리·위클리 보고서
+경고와 위험 이벤트를 Notion 이벤트 데이터베이스에서 기간별로 집계해, 지정한 보고서 부모 페이지 아래에 하위 페이지로 생성합니다. `.env`에 `NOTION_REPORT_PARENT_PAGE_ID`를 설정하고, 해당 부모 페이지를 Notion Integration과 공유해야 합니다.
+
+```bash
+python3 ptyhon/main.py --daily-report
+python3 ptyhon/main.py --weekly-report
+python3 ptyhon/main.py --daily-report --date 2026-07-26
+```
+
+보고서는 한국 표준시(KST) 기준으로 집계합니다. 데일리는 지정일 하루, 위클리는 지정일이 속한 월요일부터 일요일까지의 이벤트를 포함합니다.
+
 ## 4. 데이터 포맷 정의 (CSV)
 파이썬이 데이터를 쪼개어 읽기(Parsing) 가장 좋고, 향후 SQLite DB에 적재하기 가장 용이한 쉼표(,) 구분자 포맷을 사용합니다.
 
