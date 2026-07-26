@@ -6,6 +6,8 @@ from network.router import FactoryRouter
 
 
 class SmartFactoryBridge:
+    MAX_MESSAGE_BYTES = 4096
+
     def __init__(self):
         """서버 주소를 설정하고 데이터 라우터를 생성한다."""
         self.host = settings.HOST
@@ -13,13 +15,23 @@ class SmartFactoryBridge:
         self.router = FactoryRouter()
 
     def handle_client(self, client_socket, addr):
-        """클라이언트 데이터를 UTF-8 문자열로 변환해 라우터에 전달한다."""
+        """연결 종료까지 수신한 줄 단위 패킷을 라우터에 전달한다."""
         try:
             with client_socket:
-                data = client_socket.recv(1024)
-                if data:
-                    decoded_msg = data.decode("utf-8")
-                    self.router.parse_and_route(decoded_msg)
+                received_data = bytearray()
+                while True:
+                    chunk = client_socket.recv(1024)
+                    if not chunk:
+                        break
+
+                    received_data.extend(chunk)
+                    if len(received_data) > self.MAX_MESSAGE_BYTES:
+                        raise OSError("수신 패킷 크기가 허용 범위를 초과했습니다.")
+
+                decoded_messages = received_data.decode("utf-8").splitlines()
+                for message in decoded_messages:
+                    if message:
+                        self.router.parse_and_route(message)
         except (OSError, UnicodeDecodeError) as error:
             print(f"⚠️ 클라이언트 통신 오류 ({addr}): {error}")
 

@@ -6,7 +6,7 @@ from network.socket_server import SmartFactoryBridge
 class FakeClientSocket:
     def __init__(self, payload):
         """테스트에서 반환할 가짜 수신 데이터를 저장한다."""
-        self.payload = payload
+        self.payloads = list(payload) if isinstance(payload, list) else [payload]
         self.closed = False
 
     def __enter__(self):
@@ -20,7 +20,9 @@ class FakeClientSocket:
     def recv(self, size):
         """요청한 버퍼 크기를 확인하고 준비된 데이터를 반환한다."""
         assert size == 1024
-        return self.payload
+        if self.payloads:
+            return self.payloads.pop(0)
+        return b""
 
 
 def test_handle_client_decodes_and_routes_message():
@@ -45,3 +47,14 @@ def test_handle_client_ignores_empty_payload():
 
     server.router.parse_and_route.assert_not_called()
     assert client.closed is True
+
+
+def test_handle_client_combines_fragmented_packet():
+    """분할 수신된 하나의 패킷을 결합해 라우터에 전달하는지 검증한다."""
+    server = SmartFactoryBridge()
+    server.router = Mock()
+    client = FakeClientSocket([b"CRITICAL,4,", b"650,2\n"])
+
+    server.handle_client(client, ("127.0.0.1", 12345))
+
+    server.router.parse_and_route.assert_called_once_with("CRITICAL,4,650,2")
