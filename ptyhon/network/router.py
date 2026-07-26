@@ -3,6 +3,12 @@ from services.alarm_service import AlarmService
 
 
 class FactoryRouter:
+    EVENT_ERROR_CODES = {
+        "PERIODIC": 0,
+        "WARNING": 1,
+        "CRITICAL": 2,
+    }
+
     def __init__(self):
         """외부 보고서 전송에 사용할 Notion 클라이언트를 생성한다."""
         self.notion_client = NotionClient()
@@ -10,14 +16,32 @@ class FactoryRouter:
     def parse_and_route(self, raw_message):
         """수신 메시지를 해석하고 데이터 유형에 맞는 작업을 실행한다."""
         try:
-            tokens = raw_message.strip().split(",")
-            if len(tokens) < 4:
+            tokens = [token.strip() for token in raw_message.strip().split(",")]
+            if len(tokens) != 4:
+                print("⚠️ 잘못된 패킷 형식입니다.")
                 return
 
             data_type = tokens[0]  # PERIODIC, WARNING, CRITICAL
             machine_id = tokens[1]
             vibration_val = tokens[2]
             error_code = tokens[3]
+
+            if data_type not in self.EVENT_ERROR_CODES:
+                print(f"⚠️ 알 수 없는 패킷 유형입니다: {data_type}")
+                return
+
+            machine_number = int(machine_id)
+            vibration_number = int(vibration_val)
+            received_error_code = int(error_code)
+            expected_error_code = self.EVENT_ERROR_CODES[data_type]
+
+            if machine_number <= 0 or vibration_number < 0:
+                print("⚠️ 설비 번호 또는 진동값 범위가 올바르지 않습니다.")
+                return
+
+            if received_error_code != expected_error_code:
+                print("⚠️ 패킷 유형과 오류 코드가 일치하지 않습니다.")
+                return
 
             if data_type == "PERIODIC":
                 print(

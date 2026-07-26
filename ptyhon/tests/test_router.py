@@ -50,7 +50,18 @@ def test_critical_message_records_and_sends_alarm(router, monkeypatch):
     alarm.assert_called_once_with("3", "700", "2")
 
 
-@pytest.mark.parametrize("message", ["", "WARNING,1,500", "UNKNOWN,1,500,9"])
+@pytest.mark.parametrize(
+    "message",
+    [
+        "",
+        "WARNING,1,500",
+        "WARNING,1,500,1,extra",
+        "UNKNOWN,1,500,9",
+        "WARNING,abc,500,1",
+        "WARNING,1,-1,1",
+        "CRITICAL,1,700,1",
+    ],
+)
 def test_invalid_or_unknown_messages_are_ignored(router, monkeypatch, message):
     """불완전하거나 알 수 없는 메시지가 안전하게 무시되는지 검증한다."""
     alarm = Mock()
