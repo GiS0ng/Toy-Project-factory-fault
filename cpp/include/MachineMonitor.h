@@ -18,6 +18,7 @@ private:
     int criticalCounter;
     int elapsedSeconds;
     int saveInterval;
+    int retrySequence;
     std::vector<VibrationLog> periodicBuffer;
     
     IVibrationSensor *sensor1, *sensor2, *sensor3;
@@ -26,8 +27,10 @@ private:
     std::string getTimeForFilename() const;
     std::string getCurrentTime() const;
     void savePeriodicLog();
-    void savePreCrashLog();
     void saveCriticalLog(const VibrationLog& currentLog);
+    bool sendPayloadToPython(const std::string& payload);
+    void saveFailedPayload(const std::string& payload);
+    void retryFailedPayloads();
     
     // [추가] 파이썬 브릿지로 데이터 전송
     void sendToPython(const std::string& type, int vibration, int errorCode);
