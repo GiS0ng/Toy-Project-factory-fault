@@ -1,76 +1,155 @@
-# 스마트팩토리 설비 진동 모니터링 및 이원화 저장 시스템
+# 스마트팩토리 설비 진동 모니터링
 
-## 1. 시스템 개요 (System Overview)
-본 시스템은 Edge단(공장 현장 컴퓨터)에서 1호기 설비의 센서 데이터를 실시간으로 수집하고, 다중 조건문 알고리즘을 통해 설비의 이상 징후를 판정하는 C++ 기반의 임베디드 모니터링 시스템입니다.
+설비 진동을 모의 센서에서 수집하고, 이상 상태를 판정한 뒤 C++ → Python → Notion으로 전달하는 프로젝트입니다. 위험 이벤트는 KakaoTalk 알림 인터페이스로도 전달하도록 구성되어 있습니다.
 
-단순 감시에 그치지 않고 데이터 유실 방지(Data Integrity)를 위한 임시 버퍼링(Buffering) 메커니즘과 오작동 필터링(Fault Tolerance) 누적 카운터를 탑재하여 시스템의 견고함 추가.
+## 현재 구현 범위
 
-## 2. 데이터 흐름 및 이원화 저장 아키텍처
-### 전체 아키텍처 구조 (c++ => python => SaaS(notion,kakaotalk))
-데이터의 성격과 활용 목적에 따라 파일 저장 시스템을 완전히 분리하는 이원화 구조
-## 3. 핵심 알고리즘 및 예외 처리 로직
+- C++ 모니터링 엔진: 3개 센서의 최대 진동값을 기준으로 정상·경고·위험 상태를 판정합니다.
+- 안전 정지: 진동값이 `600 μm/s` 이상인 위험 상태가 **4회 연속** 발생할 때만 종료합니다. 정상 또는 경고가 발생하면 연속 횟수는 초기화됩니다.
+- 파일 보존: 정기 로그는 `data_queue/`에 CSV로 저장합니다. 위험 종료 시에는 버퍼의 이전 기록과 현재 위험 기록을 하나의 긴급 CSV에 저장합니다.
+- TCP 브리지: C++은 줄바꿈으로 구분한 패킷을 `127.0.0.1:9999`로 전송하고, Python은 줄 단위로 수신·검증·분기합니다.
+- 재전송 큐: 전송을 최대 3회 시도한 뒤 실패하면 `data_queue/network_retry/pending_*.packet`에 보관합니다. 다음 이벤트에서 최대 10건을 먼저 재전송하고, 성공한 파일은 삭제하지 않고 `sent_*.packet`으로 이름을 변경합니다.
+- Notion 이벤트 기록: 경고와 위험 이벤트를 Notion 데이터베이스에 기록합니다. 정상 정기 이벤트는 콘솔에만 표시합니다.
+- Notion 보고서: 데일리·위클리 보고서를 KST 기준으로 집계해 지정한 Notion 부모 페이지의 하위 페이지로 생성합니다.
 
-### ① 위험 수치 4회 연속 셧다운 (Fault Tolerance Counter)
-순간적인 센서 노이즈나 일시적 외부 충격으로 장비가 꺼지는 오작동을 막기 위해 연속 발생 Threshold 알고리즘을 적용했습니다.
-- 최대 진동값이 위험 기준(현재 600 μm/s 이상)에 도달해도 즉시 종료하지 않고 내부 카운터(`critical_counter`)를 1씩 증가시킵니다.
-  (추가 예정) => 20회 이상 진동에 이상이 있을때 영상 촬영? 이미지 데이터 저장 
-- 위험 수치가 4회 연속 발생했을 때만 치명적 고장으로 확정하고 셧다운 프로세스를 밟습니다. 정상 또는 경고 수치가 발생하면 카운터를 초기화합니다.
-    => 20회 이상 누적 8회로 변경 예정(더미데이터용) 
-  
+> KakaoTalk 알림은 현재 콘솔 미리보기 단계입니다. 실제 KakaoTalk API 연동은 아직 구현하지 않았습니다.
 
-### ② 크래시 직전 데이터 대피 (Pre-Crash Data Save)
-30분이 채 되기 전에 위험 수치가 4회 연속 발생해 시스템이 종료될 경우, 메모리 바구니에 담겨있던 "종료 직전까지의 정상 데이터"가 증발하는 문제를 해결했습니다.
+## 구성
 
-### ③ Python 브리지 전송 재시도 큐
-Python 브리지 연결 또는 전송이 실패하면 패킷을 `data_queue/network_retry/`에 `pending_*.packet`으로 저장합니다. 다음 이벤트 수신 시 보류 패킷을 먼저 재전송하며, 성공한 파일은 삭제하지 않고 `sent_*.packet`으로 상태를 변경해 전송 이력을 보존합니다.
+```text
+.
+├── cpp/                         # 센서 시뮬레이터와 모니터링 엔진
+│   ├── include/
+│   ├── src/
+│   └── main.cpp
+├── ptyhon/                      # Python 브리지 (기존 디렉터리명 유지)
+│   ├── config/                  # 환경 변수와 Notion API 클라이언트
+│   ├── network/                 # TCP 수신과 패킷 라우팅
+│   ├── services/                # 알림·보고서 로직
+│   ├── tests/
+│   └── main.py
+├── data_queue/                  # 실행 중 생성되는 로그·재전송 큐
+├── requirements.txt
+└── .env                         # 로컬 비밀 설정 (Git 제외)
+```
 
-### ④ Notion 데일리·위클리 보고서
-경고와 위험 이벤트를 Notion 이벤트 데이터베이스에서 기간별로 집계해, 지정한 보고서 부모 페이지 아래에 하위 페이지로 생성합니다. `.env`에 `NOTION_REPORT_PARENT_PAGE_ID`를 설정하고, 해당 부모 페이지를 Notion Integration과 공유해야 합니다.
+## 데이터 흐름
+
+```text
+RmsAmplitudeSensor × 3
+        ↓
+MachineMonitor (C++)
+        ├── data_queue/*.csv
+        └── TCP 127.0.0.1:9999 (newline-delimited)
+                    ↓
+             SmartFactoryBridge (Python)
+                    ├── Notion 이벤트 DB (경고·위험)
+                    └── KakaoTalk 알림 미리보기 (위험)
+                    ↓
+          Notion 데일리·위클리 보고서
+```
+
+## 상태 기준과 패킷 규약
+
+| 상태 | 진동 기준 | 오류 코드 | Python 처리 |
+| --- | ---: | ---: | --- |
+| `PERIODIC` | 400 미만 | `0` | 콘솔 출력 |
+| `WARNING` | 400 이상, 600 미만 | `1` | Notion 이벤트 기록 |
+| `CRITICAL` | 600 이상 | `2` | Notion 기록 및 KakaoTalk 미리보기 |
+
+TCP 패킷은 다음 형식이며 마지막에 줄바꿈을 붙입니다.
+
+```text
+TYPE,machine_id,vibration,error_code\n
+```
+
+예시:
+
+```text
+WARNING,1,450,1
+CRITICAL,1,620,2
+```
+
+Python 라우터는 필드 수, 패킷 유형, 설비 번호·진동값 범위, 유형과 오류 코드의 일치를 검증합니다.
+
+## 설치와 설정
+
+Python 3 환경에서 의존성을 설치합니다.
 
 ```bash
+python3 -m pip install -r requirements.txt
+```
+
+프로젝트 루트에 `.env` 파일을 만들고 아래 **키 이름만** 설정합니다.
+
+```dotenv
+NOTION_TOKEN=...
+DATABASE_ID=...
+NOTION_REPORT_PARENT_PAGE_ID=...
+```
+
+- `NOTION_TOKEN`: Notion Integration 토큰
+- `DATABASE_ID`: 경고·위험 이벤트를 저장할 Notion 데이터베이스 ID
+- `NOTION_REPORT_PARENT_PAGE_ID`: 보고서 하위 페이지를 만들 Notion 부모 페이지 ID
+
+Notion 데이터베이스와 보고서 부모 페이지 모두를 해당 Integration에 공유해야 합니다. 공유하지 않으면 `404 object_not_found` 오류가 발생할 수 있습니다.
+
+이벤트 데이터베이스에는 다음 속성이 필요합니다.
+
+| 속성명 | Notion 타입 | 용도 |
+| --- | --- | --- |
+| `설비명` | 제목(Title) | 설비 식별 |
+| `진동값` | 숫자(Number) | 최대 진동값 집계 |
+| `에러코드` | 숫자(Number) | 경고·위험 건수 집계 |
+
+`.env`는 Git에 올리지 않습니다. 토큰이나 ID의 실제 값은 코드, 문서, 커밋 메시지에 넣지 마세요.
+
+## 실행
+
+먼저 Python 브리지를 실행합니다.
+
+```bash
+python3 ptyhon/main.py
+```
+
+다른 터미널에서 C++ 실행 파일을 빌드하고 실행합니다.
+
+```bash
+mkdir -p build
+g++ -std=c++17 -Wall -Wextra -Wpedantic \
+  cpp/main.cpp cpp/src/MachineMonitor.cpp cpp/src/RmsAmplitudeSensor.cpp \
+  cpp/src/VibrationSensor.cpp -o build/factory_monitor
+./build/factory_monitor
+```
+
+### 보고서 생성
+
+기준일을 생략하면 실행한 날의 날짜를 사용합니다.
+
+```bash
+# 데일리 보고서
 python3 ptyhon/main.py --daily-report
+
+# 위클리 보고서
 python3 ptyhon/main.py --weekly-report
+
+# 특정 날짜 기준 데일리 보고서
 python3 ptyhon/main.py --daily-report --date 2026-07-26
 ```
 
-보고서는 한국 표준시(KST) 기준으로 집계합니다. 데일리는 지정일 하루, 위클리는 지정일이 속한 월요일부터 일요일까지의 이벤트를 포함합니다.
+데일리 보고서는 지정일 00:00부터 다음 날 00:00 전까지, 위클리 보고서는 지정일이 속한 월요일부터 일요일까지를 KST 기준으로 집계합니다. 집계 대상은 Notion 데이터베이스에 기록된 이벤트의 생성 시각입니다.
 
-## 4. 데이터 포맷 정의 (CSV)
-파이썬이 데이터를 쪼개어 읽기(Parsing) 가장 좋고, 향후 SQLite DB에 적재하기 가장 용이한 쉼표(,) 구분자 포맷을 사용합니다.
+## 테스트
 
-### 포맷 형식
-`[시간], [호기번호], [총 진동수], [에러코드]`
-
-### 데이터 예시
-```csv
-2026-06-19 09:45:02, 1, 3, 0    # 정상 운전 데이터
-2026-06-19 09:45:05, 1, 12, 101 # 육안 점검 필요 경고
-2026-06-19 09:45:11, 1, 26, 102 # 4회 누적을 유발한 치명적 비상
+```bash
+PYTHONDONTWRITEBYTECODE=1 pytest -q ptyhon/tests
 ```
 
-## 5. 향후 계획 (파이썬 & DB 연동 계획 ,메신저  )
-이 C++ 프로그램이 완성됨에 따라 차후 단계에서 구현할 파이썬(Python) 파이프라인은 다음과 같습니다.
+Python 테스트는 패킷 검증, 분할 TCP 수신, Notion 요청, 데일리·위클리 집계를 포함합니다.
 
-1. **파일 와쳐 (File Watcher)**: 파이썬 프로그램이 프로젝트 폴더를 실시간 감시합니다.
-2. **분류기 (Parser)**: 파일명 끝자리가 `INTERVAL_30M`이면 통계 테이블로, `CRITICAL`이면 비상 알림 테이블로 분기 처리합니다.
-3. **내장형 DB 적재 (SQLite)**: `sqlite3` 라이브러리를 활용하여 가볍고 빠르게 데이터를 테이블에 적재하고, 최종적으로 원격 대형 DB(PostgreSQL 등)로의 마이그레이션 구조를 설계합니다.
-4. **SaaS 연동** 데일리 보고서 및 긴급알림 SaaS연동을 통해 전체적인 아키텍처 구현 
+## 다음 개선 후보
 
-
-
-project/
-│
-├── .env                  # 토큰 및 DB_ID (Git 업로드 제외)
-├── .gitignore            # Git 제외 명단 (.env 등 포함)
-├── main.py               # 🚀 프로그램 전체 실행 파일 (엔트리 포인트)
-│
-├── config/               # [설정 폴더]
-│   └── settings.py       # 환경변수 로드 및 검증
-│
-├── services/             # [기능/비즈니스 로직 폴더]
-│   ├── notion_client.py  # 노션 API 전송 담당
-│   └── alarm_service.py  # 카카오톡 등 알림 담당
-│
-└── network/              # [네트워크 통신 폴더]
-    ├── socket_server.py  # 소켓 열고 데이터 수신 담당
-    └── router.py         # 패킷 파싱 및 분기 담당
+- 실제 KakaoTalk API 인증·메시지 전송 구현
+- `sent_*.packet` 보존 기간 및 정리 정책 결정
+- 실제 센서 연동과 현장 기준에 따른 진동 임계값 검증
+- Notion 이벤트 DB 외의 장기 저장소와 운영 모니터링 추가
