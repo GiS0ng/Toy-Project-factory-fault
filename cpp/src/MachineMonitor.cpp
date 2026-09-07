@@ -119,7 +119,7 @@ bool MachineMonitor::savePeriodicLog() {
     return true;
 }
 
-bool MachineMonitor::savePreCrashLog(const VibrationEvent&) {
+bool MachineMonitor::savePreCrashLog() {
     if (!saveEvents("critical", periodicBuffer_)) {
         return false;
     }
@@ -144,7 +144,7 @@ MonitorResult MachineMonitor::sampleOnce() {
               << profile_.consecutiveZoneDLimit << '\n';
 
     if (consecutiveZoneDCount_ >= profile_.consecutiveZoneDLimit) {
-        lastSaveSucceeded_ = savePreCrashLog(event);
+        lastSaveSucceeded_ = savePreCrashLog();
         return MonitorResult::StopRequested;
     }
 
