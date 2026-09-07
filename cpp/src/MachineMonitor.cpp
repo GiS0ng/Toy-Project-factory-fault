@@ -1,133 +1,166 @@
-#include "../include/MachineMonitor.h"
-#include <iostream>
-#include <fstream>
-#include <unistd.h>
-#include <iomanip>
-#include <sstream>
-#include <ctime>
-#include <cstdlib>
-#include <arpa/inet.h>
-#include <sys/socket.h>
-#include <cstring>
+#include "MachineMonitor.h"
+
 #include <algorithm>
+#include <ctime>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <sstream>
+#include <stdexcept>
+#include <thread>
+#include <utility>
 
-using namespace std;
+#include "EventSerializer.h"
 
-// 1. 생성자 구현
-MachineMonitor::MachineMonitor(int id, IVibrationSensor* s1, IVibrationSensor* s2, IVibrationSensor* s3, int intervalSec) 
-    : machineId(id), criticalCounter(0), elapsedSeconds(0), saveInterval(intervalSec),
-      sensor1(s1), sensor2(s2), sensor3(s3) {}
-
-// 2. 시간 관련 헬퍼 함수
-string MachineMonitor::getCurrentTime() const {
-    time_t now = time(nullptr);
-    struct tm tstruct = *localtime(&now);
-    char buf[80];
-    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tstruct);
-    return string(buf);
+namespace {
+std::string formatTimestamp(std::chrono::system_clock::time_point timePoint, const char* format) {
+    const std::time_t rawTime = std::chrono::system_clock::to_time_t(timePoint);
+    std::tm utcTime{};
+#ifdef _WIN32
+    gmtime_s(&utcTime, &rawTime);
+#else
+    gmtime_r(&rawTime, &utcTime);
+#endif
+    std::ostringstream output;
+    output << std::put_time(&utcTime, format);
+    return output.str();
 }
+}  // namespace
 
-string MachineMonitor::getTimeForFilename() const {
-    time_t now = time(nullptr);
-    struct tm tstruct = *localtime(&now);
-    char buf[80];
-    strftime(buf, sizeof(buf), "%Y%m%d_%H%M%S", &tstruct);
-    return string(buf);
-}
-
-// 3. 파이썬 전송 함수 (소켓)
-void MachineMonitor::sendToPython(const string& type, int vibration, int errorCode) {
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) return;
-
-    struct sockaddr_in serv_addr;
-    memset(&serv_addr, 0, sizeof(serv_addr));
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_port = htons(9999);
-    serv_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-
-    if (connect(sock, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) >= 0) {
-        string payload = type + "," + to_string(machineId) + "," + to_string(vibration) + "," + to_string(errorCode);
-        send(sock, payload.c_str(), payload.length(), 0);
-    }
-    close(sock);
-}
-
-// 4. 로그 저장 함수들
-void MachineMonitor::savePeriodicLog() {
-    if (periodicBuffer.empty()) return;
-    string filename = "data_queue/periodic_" + to_string(machineId) + "_" + getTimeForFilename() + ".csv";
-    ofstream pFile(filename);
-    if (pFile.is_open()) {
-        for (const auto& log : periodicBuffer) {
-            pFile << log.timestamp << "," << machineId << "," << log.totalVibrations << "," << log.errorCode << "\n";
-        }
-        cout << "💾 [File] 정기 로그 저장 완료: " << filename << endl;
-    }
-    periodicBuffer.clear();
-    elapsedSeconds = 0;
-}
-
-void MachineMonitor::saveCriticalLog(const VibrationLog& currentLog) {
-    string filename = "data_queue/critical_" + to_string(machineId) + "_" + getTimeForFilename() + ".csv";
-    ofstream logFile(filename);
-    if (logFile.is_open()) {
-        logFile << currentLog.timestamp << "," << machineId << "," << currentLog.totalVibrations << "," << currentLog.errorCode << "\n";
-        cout << "🚨 [File] 긴급 블랙박스 생성 완료: " << filename << endl;
+MachineMonitor::MachineMonitor(
+    int machineId,
+    std::vector<IVibrationSensor*> sensors,
+    MachineProfile profile,
+    ITelemetrySender& telemetrySender,
+    Clock clock)
+    : machineId_(machineId),
+      sensors_(std::move(sensors)),
+      profile_(std::move(profile)),
+      telemetrySender_(telemetrySender),
+      clock_(std::move(clock)),
+      evaluator_(profile_.boundaries),
+      lastPeriodicSave_(clock_()) {
+    profile_.validate();
+    if (machineId_ <= 0 || sensors_.empty() ||
+        std::any_of(sensors_.begin(), sensors_.end(), [](const auto* sensor) { return sensor == nullptr; })) {
+        throw std::invalid_argument("설비 ID와 센서 구성이 잘못되었습니다");
     }
 }
 
-// 5. 핵심 메인 루프 (ISO 10816-3 적용)
-void MachineMonitor::run() {
-    cout << "🏭 ISO 10816-3 표준 기반 모니터링 엔진 가동..." << endl;
+VibrationEvent MachineMonitor::collectEvent() {
+    VibrationEvent event{};
+    event.timestamp = formatTimestamp(clock_(), "%Y-%m-%dT%H:%M:%SZ");
+    event.machineId = machineId_;
 
-    while (true) {
-        int v1 = sensor1->getVibration();
-        int v2 = sensor2->getVibration();
-        int v3 = sensor3->getVibration();
-
-        int maxVib = max({v1, v2, v3});
-        
-        string packetHeader = "PERIODIC";
-        int currentErrorCode = 0; // ISO_NORMAL
-        string statusMsg = "🟢 [NORMAL]";
-
-        if (maxVib >= 600) {
-            packetHeader = "CRITICAL";
-            currentErrorCode = 2; // ISO_CRITICAL
-            statusMsg = "🚨 [CRITICAL]";
-            criticalCounter++;
-        } 
-        else if (maxVib >= 400) {
-            packetHeader = "WARNING";
-            currentErrorCode = 1; // ISO_WARNING
-            statusMsg = "🟡 [WARNING]";
-            criticalCounter = 0;
-        } 
-        else {
-            criticalCounter = 0;
+    for (auto* sensor : sensors_) {
+        const double value = sensor->readVelocityRmsMmPerSec();
+        if (value < 0.0) {
+            throw std::runtime_error("센서가 음수 진동값을 반환했습니다");
         }
-
-        cout << "\n[" << getCurrentTime() << "] " << statusMsg << " Max: " << maxVib << " μm/s" << endl;
-
-        // 파이썬 전송
-        sendToPython(packetHeader, maxVib, currentErrorCode);
-
-        // 위험 누적 시 종료
-        if (criticalCounter >= 4) {
-            cout << "❌ 위험 수치 누적으로 시스템을 정지합니다." << endl;
-            saveCriticalLog({getCurrentTime(), maxVib, currentErrorCode});
-            exit(0);
-        }
-
-        // 데이터 버퍼링 및 정기 저장
-        periodicBuffer.push_back({getCurrentTime(), maxVib, currentErrorCode});
-        
-        if (elapsedSeconds >= saveInterval) {
-            savePeriodicLog();
-        }
-
-        sleep(3);
-        elapsedSeconds += 3;
+        event.readings.push_back({sensor->sensorId(), value});
+        event.maximumVelocityRmsMmPerSec =
+            std::max(event.maximumVelocityRmsMmPerSec, value);
     }
+    event.zone = evaluator_.evaluate(event.maximumVelocityRmsMmPerSec);
+    event.errorCode = toErrorCode(event.zone);
+    return event;
+}
+
+void MachineMonitor::sendTelemetry(const VibrationEvent& event) {
+    const std::string payload = profile_.protocol == Protocol::Json
+                                    ? EventSerializer::toJson(event, profile_.standard)
+                                    : EventSerializer::toCsv(event);
+    if (!telemetrySender_.send(payload)) {
+        std::cerr << "[WARN] Python 브리지 전송 실패; 로컬 로그는 계속 보존합니다.\n";
+    }
+}
+
+bool MachineMonitor::saveEvents(
+    const std::string& prefix, const std::vector<VibrationEvent>& events) {
+    if (events.empty()) {
+        return true;
+    }
+    std::error_code directoryError;
+    std::filesystem::create_directories(profile_.dataDirectory, directoryError);
+    if (directoryError) {
+        std::cerr << "[ERROR] 데이터 디렉터리 생성 실패: " << directoryError.message() << '\n';
+        return false;
+    }
+
+    const auto filename = prefix + "_" + std::to_string(machineId_) + "_" +
+                          formatTimestamp(clock_(), "%Y%m%d_%H%M%S") + ".csv";
+    const auto path = profile_.dataDirectory / filename;
+    std::ofstream output(path, std::ios::out | std::ios::trunc);
+    if (!output) {
+        std::cerr << "[ERROR] 로그 파일 열기 실패: " << path.string() << '\n';
+        return false;
+    }
+    output << "timestamp,machine_id,max_velocity_mm_s_rms,zone,error_code\n";
+    for (const auto& event : events) {
+        output << event.timestamp << ',' << event.machineId << ',' << std::fixed
+               << std::setprecision(3) << event.maximumVelocityRmsMmPerSec << ','
+               << toString(event.zone) << ',' << static_cast<int>(event.errorCode) << '\n';
+    }
+    output.flush();
+    if (!output.good()) {
+        std::cerr << "[ERROR] 로그 쓰기 실패: " << path.string() << '\n';
+        return false;
+    }
+    std::cout << "[FILE] 로그 저장 완료: " << path.string() << '\n';
+    return true;
+}
+
+bool MachineMonitor::savePeriodicLog() {
+    if (!saveEvents("periodic", periodicBuffer_)) {
+        return false;
+    }
+    periodicBuffer_.clear();
+    lastPeriodicSave_ = clock_();
+    return true;
+}
+
+bool MachineMonitor::savePreCrashLog(const VibrationEvent&) {
+    if (!saveEvents("critical", periodicBuffer_)) {
+        return false;
+    }
+    periodicBuffer_.clear();
+    return true;
+}
+
+MonitorResult MachineMonitor::sampleOnce() {
+    const auto event = collectEvent();
+    periodicBuffer_.push_back(event);
+    sendTelemetry(event);
+
+    if (event.zone == VibrationZone::D) {
+        ++consecutiveZoneDCount_;
+    } else {
+        consecutiveZoneDCount_ = 0;
+    }
+
+    std::cout << '[' << event.timestamp << "] Zone " << toString(event.zone) << " | Max "
+              << std::fixed << std::setprecision(3) << event.maximumVelocityRmsMmPerSec
+              << " mm/s RMS | D count " << consecutiveZoneDCount_ << '/'
+              << profile_.consecutiveZoneDLimit << '\n';
+
+    if (consecutiveZoneDCount_ >= profile_.consecutiveZoneDLimit) {
+        lastSaveSucceeded_ = savePreCrashLog(event);
+        return MonitorResult::StopRequested;
+    }
+
+    const auto elapsed =
+        std::chrono::duration_cast<std::chrono::seconds>(clock_() - lastPeriodicSave_).count();
+    if (elapsed >= profile_.saveIntervalSeconds) {
+        lastSaveSucceeded_ = savePeriodicLog();
+    }
+    return MonitorResult::Continue;
+}
+
+int MachineMonitor::run() {
+    std::cout << "ISO 20816-3:2022 설정형 진동 모니터를 시작합니다.\n";
+    while (sampleOnce() == MonitorResult::Continue) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(profile_.sampleIntervalMs));
+    }
+    std::cout << "Zone D 연속 감지 한도에 도달해 정상 종료합니다.\n";
+    return lastSaveSucceeded_ ? 0 : 2;
 }

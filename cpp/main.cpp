@@ -1,22 +1,32 @@
+#include <exception>
 #include <iostream>
-#include <cstdlib>
-#include <ctime>
-#include "include/MachineMonitor.h"
-#include "include/RmsAmplitudeSensor.h"
+#include <vector>
 
-using namespace std;
+#include "MachineMonitor.h"
+#include "MachineProfile.h"
+#include "RmsAmplitudeSensor.h"
+#include "TelemetrySender.h"
 
-int main() {
-    srand(time(nullptr));
+int main(int argc, char* argv[]) {
+    if (argc != 2) {
+        std::cerr << "사용법: factory_monitor <machine-profile.conf>\n";
+        return 64;
+    }
 
-    // 1. 센서 부품 조립
-    RmsAmplitudeSensor s1(1), s2(2), s3(3);
-
-    // 2. 모니터링 엔진 생성 (기계ID: 1, 센서들, 파일저장주기: 30초)
-    MachineMonitor monitor(1, &s1, &s2, &s3, 30);
-
-    // 3. 엔진 가동
-    monitor.run();
-
-    return 0;
+    try {
+        const auto profile = MachineProfile::load(argv[1]);
+        RmsAmplitudeSensor sensor1(1);
+        RmsAmplitudeSensor sensor2(2);
+        RmsAmplitudeSensor sensor3(3);
+        TcpTelemetrySender sender(profile.telemetryHost, profile.telemetryPort);
+        MachineMonitor monitor(
+            1,
+            std::vector<IVibrationSensor*>{&sensor1, &sensor2, &sensor3},
+            profile,
+            sender);
+        return monitor.run();
+    } catch (const std::exception& error) {
+        std::cerr << "초기화 또는 실행 실패: " << error.what() << '\n';
+        return 1;
+    }
 }

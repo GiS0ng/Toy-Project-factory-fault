@@ -1,40 +1,47 @@
-#ifndef MACHINE_MONITOR_H
-#define MACHINE_MONITOR_H
+#pragma once
 
+#include <chrono>
+#include <functional>
 #include <string>
 #include <vector>
-#include "ErrorCode.h"
-#include "IVibrationSensor.h"
 
-struct VibrationLog {
-    std::string timestamp;
-    int totalVibrations;
-    int errorCode;
-};
+#include "IVibrationSensor.h"
+#include "MachineProfile.h"
+#include "TelemetrySender.h"
+#include "VibrationEvaluator.h"
+#include "VibrationEvent.h"
+
+enum class MonitorResult { Continue, StopRequested };
 
 class MachineMonitor {
-private:
-    int machineId;
-    int criticalCounter;
-    int elapsedSeconds;
-    int saveInterval;
-    std::vector<VibrationLog> periodicBuffer;
-    
-    IVibrationSensor *sensor1, *sensor2, *sensor3;
-
-    // 내부 헬퍼 함수
-    std::string getTimeForFilename() const;
-    std::string getCurrentTime() const;
-    void savePeriodicLog();
-    void savePreCrashLog();
-    void saveCriticalLog(const VibrationLog& currentLog);
-    
-    // [추가] 파이썬 브릿지로 데이터 전송
-    void sendToPython(const std::string& type, int vibration, int errorCode);
-
 public:
-    MachineMonitor(int id, IVibrationSensor* s1, IVibrationSensor* s2, IVibrationSensor* s3, int intervalSec = 30);
-    void run(); 
-};
+    using Clock = std::function<std::chrono::system_clock::time_point()>;
 
-#endif
+    MachineMonitor(
+        int machineId,
+        std::vector<IVibrationSensor*> sensors,
+        MachineProfile profile,
+        ITelemetrySender& telemetrySender,
+        Clock clock = std::chrono::system_clock::now);
+
+    MonitorResult sampleOnce();
+    int run();
+
+private:
+    int machineId_;
+    std::vector<IVibrationSensor*> sensors_;
+    MachineProfile profile_;
+    ITelemetrySender& telemetrySender_;
+    Clock clock_;
+    VibrationEvaluator evaluator_;
+    int consecutiveZoneDCount_ = 0;
+    bool lastSaveSucceeded_ = true;
+    std::chrono::system_clock::time_point lastPeriodicSave_;
+    std::vector<VibrationEvent> periodicBuffer_;
+
+    VibrationEvent collectEvent();
+    bool saveEvents(const std::string& prefix, const std::vector<VibrationEvent>& events);
+    bool savePeriodicLog();
+    bool savePreCrashLog(const VibrationEvent& currentEvent);
+    void sendTelemetry(const VibrationEvent& event);
+};
