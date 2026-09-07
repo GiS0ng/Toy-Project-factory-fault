@@ -42,6 +42,6 @@ private:
     VibrationEvent collectEvent();
     bool saveEvents(const std::string& prefix, const std::vector<VibrationEvent>& events);
     bool savePeriodicLog();
-    bool savePreCrashLog(const VibrationEvent& currentEvent);
+    bool savePreCrashLog();
     void sendTelemetry(const VibrationEvent& event);
 };

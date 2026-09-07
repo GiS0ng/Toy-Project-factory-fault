@@ -20,6 +20,12 @@ EXPECTED_ERROR_CODES = {
     MessageType.CRITICAL: 2,
 }
 
+EXPECTED_ZONES = {
+    MessageType.PERIODIC: {None, "A", "B"},
+    MessageType.WARNING: {None, "C"},
+    MessageType.CRITICAL: {None, "D"},
+}
+
 
 @dataclass(frozen=True)
 class SensorReading:
@@ -127,12 +133,7 @@ class TelemetryMessage:
             raise MessageValidationError("메시지 유형과 에러 코드가 일치하지 않습니다")
 
         zone_text = str(zone) if zone is not None else None
-        expected_zones = {
-            MessageType.PERIODIC: {None, "A", "B"},
-            MessageType.WARNING: {None, "C"},
-            MessageType.CRITICAL: {None, "D"},
-        }
-        if zone_text not in expected_zones[parsed_type]:
+        if zone_text not in EXPECTED_ZONES[parsed_type]:
             raise MessageValidationError("메시지 유형과 ISO Zone이 일치하지 않습니다")
 
         return cls(

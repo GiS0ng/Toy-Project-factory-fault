@@ -1,24 +1,12 @@
-from typing import Protocol
-
+from config.notion_client import NotionClient
 from network.message import MessageType, MessageValidationError, TelemetryMessage
-from services.alarm_service import AlarmService
-
-
-class ReportClient(Protocol):
-    def send_to_notion_daily(
-        self, machine_id: int, vibration_val: float, error_code: int
-    ) -> bool: ...
+from services.alarm_service import send_to_kakao_sos
 
 
 class FactoryRouter:
-    def __init__(
-        self,
-        notion_client: ReportClient | None = None,
-        alarm_service: type[AlarmService] = AlarmService,
-    ):
+    def __init__(self, notion_client: NotionClient | None = None):
         """외부 전송 기능을 주입받아 데이터 라우터를 구성한다."""
         self.notion_client = notion_client
-        self.alarm_service = alarm_service
 
     def parse_and_route(self, raw_message: str) -> bool:
         """수신 메시지를 검증하고 유형에 맞는 작업을 실행한다."""
@@ -48,7 +36,7 @@ class FactoryRouter:
             f"({message.vibration_value} mm/s RMS)"
         )
         self._send_report(message)
-        self.alarm_service.send_to_kakao_sos(
+        send_to_kakao_sos(
             message.machine_id,
             message.vibration_value,
             message.error_code,
