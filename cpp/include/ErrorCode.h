@@ -1,10 +1,33 @@
-#ifndef ERROR_CODE_H
-#define ERROR_CODE_H
+#pragma once
 
-enum ErrorCode {
-    ISO_NORMAL = 0,    // Grade A/B (0~399)
-    ISO_WARNING = 1,   // Grade C (400~599)
-    ISO_CRITICAL = 2   // Grade D (600~800)
+enum class VibrationZone { A, B, C, D };
+
+enum class ErrorCode {
+    Normal = 0,
+    Warning = 1,
+    Critical = 2,
 };
 
-#endif
+inline ErrorCode toErrorCode(VibrationZone zone) {
+    if (zone == VibrationZone::D) {
+        return ErrorCode::Critical;
+    }
+    if (zone == VibrationZone::C) {
+        return ErrorCode::Warning;
+    }
+    return ErrorCode::Normal;
+}
+
+inline const char* toString(VibrationZone zone) {
+    switch (zone) {
+        case VibrationZone::A:
+            return "A";
+        case VibrationZone::B:
+            return "B";
+        case VibrationZone::C:
+            return "C";
+        case VibrationZone::D:
+            return "D";
+    }
+    return "UNKNOWN";
+}

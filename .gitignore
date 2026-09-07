@@ -5,6 +5,10 @@ factory_monitor
 *.o
 *.csv
 data_queue/
+build/
+.venv/
+.pytest_cache/
+.coverage
 # .gitignore
 .env
 __pycache__/

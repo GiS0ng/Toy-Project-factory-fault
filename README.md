@@ -1,62 +1,130 @@
-# 스마트팩토리 설비 진동 모니터링 및 이원화 저장 시스템
+# 스마트팩토리 설비 진동 모니터링
 
-## 1. 시스템 개요 (System Overview)
-본 시스템은 Edge단(공장 현장 컴퓨터)에서 1호기 설비의 센서 데이터를 실시간으로 수집하고, 다중 조건문 알고리즘을 통해 설비의 이상 징후를 판정하는 C++ 기반의 임베디드 모니터링 시스템입니다.
+C++ 엣지 프로세스가 세 센서의 진동 속도 RMS를 수집·평가하고, Python 브리지가 검증된 이벤트를 Notion 보고 및 알림 계층으로 전달하는 예제 프로젝트입니다.
 
-단순 감시에 그치지 않고 데이터 유실 방지(Data Integrity)를 위한 임시 버퍼링(Buffering) 메커니즘과 오작동 필터링(Fault Tolerance) 누적 카운터를 탑재하여 시스템의 견고함 추가.
+## 설계 원칙
 
-## 2. 데이터 흐름 및 이원화 저장 아키텍처
-### 전체 아키텍처 구조 (c++ => python => SaaS(notion,kakaotalk))
-데이터의 성격과 활용 목적에 따라 파일 저장 시스템을 완전히 분리하는 이원화 구조
-## 3. 핵심 알고리즘 및 예외 처리 로직
+- 측정 단위는 `mm/s RMS`로 고정합니다.
+- ISO Zone A–D 판정과 운전 조치 정책을 분리합니다.
+- Zone 경계값은 코드에 넣지 않고 설비 프로필 설정 파일에서 받습니다.
+- Zone D가 설정 횟수만큼 연속 발생하면 메모리 버퍼를 저장한 뒤 정상 종료합니다.
+- 새 전송 형식은 줄 단위 JSON v1이며, 기존 4필드 CSV v1도 Python에서 계속 받습니다.
+- 네트워크 전송에 실패해도 로컬 수집과 저장은 계속합니다.
 
-### ① 4회 누적 셧다운 (Fault Tolerance Counter)
-순간적인 센서 노이즈나 일시적 외부 충격으로 장비가 꺼지는 오작동을 막기 위해 누적 Threshold 알고리즘을 적용했습니다.
-- 진동수 16회 이상 발생 시 즉시 종료하지 않고 내부 카운터(`critical_counter`)를 1씩 증가시킵니다.
-  (추가 예정) => 20회 이상 진동에 이상이 있을때 영상 촬영? 이미지 데이터 저장 
-- 카운터가 16회 이상 누적 4회에 도달했을 때만 치명적 고장으로 확정하고 셧다운 프로세스를 밟습니다.
-    => 20회 이상 누적 8회로 변경 예정(더미데이터용) 
-  
+> 이 저장소는 ISO 인증 도구가 아닙니다. `config/machine_profile.example.conf`의 경계값은 실행 예시일 뿐입니다. 실제 값은 보유한 ISO 20816-3:2022 문서, 설비 사양, 측정 위치와 담당 엔지니어의 판단에 따라 승인된 값으로 교체해야 합니다.
 
-### ② 크래시 직전 데이터 대피 (Pre-Crash Data Save)
-30분이 채 되기 전에 4회 누적 에러로 시스템이 강제 종료(`exit(0)`)될 경우, 메모리 바구니에 담겨있던 "종료 직전까지의 정상 데이터"가 증발하는 문제를 해결했습니다.
+## 구조
 
-## 4. 데이터 포맷 정의 (CSV)
-파이썬이 데이터를 쪼개어 읽기(Parsing) 가장 좋고, 향후 SQLite DB에 적재하기 가장 용이한 쉼표(,) 구분자 포맷을 사용합니다.
-
-### 포맷 형식
-`[시간], [호기번호], [총 진동수], [에러코드]`
-
-### 데이터 예시
-```csv
-2026-06-19 09:45:02, 1, 3, 0    # 정상 운전 데이터
-2026-06-19 09:45:05, 1, 12, 101 # 육안 점검 필요 경고
-2026-06-19 09:45:11, 1, 26, 102 # 4회 누적을 유발한 치명적 비상
+```text
+.
+├── config/
+│   └── machine_profile.example.conf
+├── cpp/
+│   ├── include/        # 판정·설정·전송 인터페이스
+│   ├── src/            # 플랫폼 독립 코어와 TCP 구현
+│   └── tests/          # 외부 테스트 프레임워크가 필요 없는 CTest
+├── python/
+│   ├── config/         # 환경 설정과 Notion 클라이언트
+│   ├── network/        # CSV/JSON 파서, 라우터, TCP 서버
+│   ├── services/       # 알림 서비스
+│   └── tests/
+├── CMakeLists.txt
+└── requirements.txt
 ```
 
-## 5. 향후 계획 (파이썬 & DB 연동 계획 ,메신저  )
-이 C++ 프로그램이 완성됨에 따라 차후 단계에서 구현할 파이썬(Python) 파이프라인은 다음과 같습니다.
+데이터 흐름은 다음과 같습니다.
 
-1. **파일 와쳐 (File Watcher)**: 파이썬 프로그램이 프로젝트 폴더를 실시간 감시합니다.
-2. **분류기 (Parser)**: 파일명 끝자리가 `INTERVAL_30M`이면 통계 테이블로, `CRITICAL`이면 비상 알림 테이블로 분기 처리합니다.
-3. **내장형 DB 적재 (SQLite)**: `sqlite3` 라이브러리를 활용하여 가볍고 빠르게 데이터를 테이블에 적재하고, 최종적으로 원격 대형 DB(PostgreSQL 등)로의 마이그레이션 구조를 설계합니다.
-4. **SaaS 연동** 데일리 보고서 및 긴급알림 SaaS연동을 통해 전체적인 아키텍처 구현 
+```text
+센서 3개 → C++ 측정 이벤트 → ISO Zone 평가 → 로컬 CSV
+                                      └→ TCP(JSON/CSV) → Python 검증 → Notion/알림
+```
 
+## 준비
 
+Python 3.10 이상과 CMake 3.20 이상, C++17 컴파일러가 필요합니다.
 
-project/
-│
-├── .env                  # 토큰 및 DB_ID (Git 업로드 제외)
-├── .gitignore            # Git 제외 명단 (.env 등 포함)
-├── main.py               # 🚀 프로그램 전체 실행 파일 (엔트리 포인트)
-│
-├── config/               # [설정 폴더]
-│   └── settings.py       # 환경변수 로드 및 검증
-│
-├── services/             # [기능/비즈니스 로직 폴더]
-│   ├── notion_client.py  # 노션 API 전송 담당
-│   └── alarm_service.py  # 카카오톡 등 알림 담당
-│
-└── network/              # [네트워크 통신 폴더]
-    ├── socket_server.py  # 소켓 열고 데이터 수신 담당
-    └── router.py         # 패킷 파싱 및 분기 담당
+```bash
+python -m venv .venv
+```
+
+Linux/macOS:
+
+```bash
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+Windows PowerShell:
+
+```powershell
+.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+```
+
+Notion 연동이 필요하면 `.env.example`을 `.env`로 복사한 뒤 `NOTION_TOKEN`과 `DATABASE_ID`를 함께 입력합니다. 두 값이 없으면 로컬 수신과 알림 미리보기만 동작합니다.
+
+## 실행
+
+먼저 Python 브리지를 실행합니다.
+
+```bash
+python python/main.py
+```
+
+C++ 프로그램을 빌드합니다.
+
+```bash
+cmake -S . -B build -DBUILD_TESTING=ON
+cmake --build build --config Release
+```
+
+승인된 Zone 값으로 설정 파일을 만든 뒤 실행 파일에 전달합니다.
+
+Linux:
+
+```bash
+./build/factory_monitor config/machine_profile.conf
+```
+
+Windows:
+
+```powershell
+.\build\Release\factory_monitor.exe config\machine_profile.conf
+```
+
+## 설정 파일
+
+형식은 주석과 `key=value` 행으로 구성됩니다. 다음 값은 필수입니다.
+
+- 표준과 설비: `standard`, `machine_group`, `support_type`, `rated_power_kw`, `operating_speed_rpm`
+- Zone 경계: `zone_ab_mm_s_rms`, `zone_bc_mm_s_rms`, `zone_cd_mm_s_rms`
+- 정책: `consecutive_zone_d_limit`, `sample_interval_ms`, `save_interval_seconds`
+- 전송·저장: `telemetry_host`, `telemetry_port`, `protocol`, `data_directory`
+
+프로그램은 ISO 20816-3:2022 적용 범위에 맞춰 출력이 15 kW를 초과하는지, 회전수가 120~30,000 r/min인지, Zone 경계가 오름차순인지 시작 시 검증합니다.
+
+## 통신 규약
+
+JSON v1은 각 메시지 끝에 개행을 붙입니다.
+
+```json
+{"version":1,"type":"WARNING","timestamp":"2026-09-04T00:00:00Z","machine_id":1,"standard":"ISO 20816-3:2022","unit":"mm/s RMS","max_velocity_rms":4.5,"zone":"C","error_code":1,"readings":[{"sensor_id":1,"velocity_rms":4.5}]}
+```
+
+레거시 CSV도 계속 지원합니다.
+
+```csv
+WARNING,1,4.500,1
+```
+
+메시지 유형과 에러 코드는 `PERIODIC=0`, `WARNING=1`, `CRITICAL=2`로 일치해야 합니다. Python 브리지는 버전, 단위, 값 범위, Zone 조합이 잘못된 메시지를 외부 서비스에 전달하지 않습니다.
+
+## 테스트
+
+```bash
+python -m black --check python
+python -m pytest
+ctest --test-dir build -C Release --output-on-failure
+```
+
+GitHub Actions는 Ubuntu와 Windows에서 C++ 빌드·CTest를 실행하고, Ubuntu에서 Python 포맷과 테스트를 확인합니다.

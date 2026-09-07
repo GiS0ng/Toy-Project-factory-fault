@@ -1,21 +1,19 @@
-#include "../include/RmsAmplitudeSensor.h"
-#include <cstdlib>
+#include "RmsAmplitudeSensor.h"
 
-RmsAmplitudeSensor::RmsAmplitudeSensor(int id) : sensorId(id) {}
+RmsAmplitudeSensor::RmsAmplitudeSensor(int id, unsigned int seed)
+    : sensorId_(id), generator_(seed) {}
 
-int RmsAmplitudeSensor::getVibration() {
-    int dice = rand() % 100;
-    
-    if (dice < 92) { 
-        // Grade A/B: 0 ~ 399 μm/s
-        return rand() % 400;
-    } 
-    else if (dice < 97) { 
-        // Grade C: 400 ~ 599 μm/s
-        return 400 + (rand() % 200);
-    } 
-    else { 
-        // Grade D: 600 ~ 800 μm/s
-        return 600 + (rand() % 201);
+double RmsAmplitudeSensor::readVelocityRmsMmPerSec() {
+    std::uniform_real_distribution<double> probability(0.0, 1.0);
+    const double roll = probability(generator_);
+
+    if (roll < 0.92) {
+        return std::uniform_real_distribution<double>(0.0, 3.99)(generator_);
     }
+    if (roll < 0.97) {
+        return std::uniform_real_distribution<double>(4.0, 5.99)(generator_);
+    }
+    return std::uniform_real_distribution<double>(6.0, 8.0)(generator_);
 }
+
+int RmsAmplitudeSensor::sensorId() const { return sensorId_; }
