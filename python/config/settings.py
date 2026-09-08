@@ -12,6 +12,7 @@ class Settings:
     notion_token: str | None = None
     database_id: str | None = None
     max_message_bytes: int = 65_536
+    factory_db_path: str = "data/factory.db"
 
     @classmethod
     def from_env(cls, env_file: Path | None = None) -> "Settings":
@@ -26,6 +27,7 @@ class Settings:
             notion_token=os.getenv("NOTION_TOKEN"),
             database_id=os.getenv("DATABASE_ID"),
             max_message_bytes=int(os.getenv("MAX_MESSAGE_BYTES", "65536")),
+            factory_db_path=os.getenv("FACTORY_DB_PATH", "data/factory.db"),
         )
         settings.validate()
         return settings
@@ -35,6 +37,8 @@ class Settings:
             raise ValueError("FACTORY_PORT는 1~65535 범위여야 합니다")
         if self.max_message_bytes <= 0:
             raise ValueError("MAX_MESSAGE_BYTES는 양수여야 합니다")
+        if not self.factory_db_path:
+            raise ValueError("FACTORY_DB_PATH는 비어 있을 수 없습니다")
         if bool(self.notion_token) != bool(self.database_id):
             raise ValueError("NOTION_TOKEN과 DATABASE_ID는 함께 설정해야 합니다")
 

@@ -5,6 +5,9 @@ factory_monitor
 *.o
 *.csv
 data_queue/
+data/*.db
+data/*.db-wal
+data/*.db-shm
 build/
 .venv/
 .pytest_cache/
