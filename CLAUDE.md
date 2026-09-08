@@ -47,7 +47,8 @@ clangd 정확도를 위해 CMake 를 `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON` 으로
 Python (저장소 루트에서):
 
 ```bash
-python python/main.py                 # 브리지 서버 실행 (C++ 프로그램보다 먼저)
+python python/main.py                 # 브리지 서버만 실행 (C++ 프로그램보다 먼저)
+python python/dashboard.py            # 브리지 + 웹 대시보드 (http://127.0.0.1:8000)
 python -m pytest                       # 테스트 (pyproject.toml이 pythonpath=python 설정)
 python -m black --check python         # 포맷 검사 (CI 기준)
 python -m black python                 # 포맷 적용
@@ -87,18 +88,23 @@ cp config/machine_profile.example.conf config/machine_profile.conf
   초기화·실행 중 예외 `1`.
 
 ### Python (`python/`)
-- `config/` 환경 설정(`Settings`)·Notion 클라이언트, `network/` 메시지 파서·라우터·
-  TCP 서버, `services/` 알림.
-- `main.py`가 `Settings.from_env()`로 조립: `SmartFactoryBridge` ← `FactoryRouter`
-  ← 선택적 `NotionClient`. 의존성은 생성자 주입.
+- `config/` 환경 설정(`Settings`)·SQLite 연결(`database.py`), `network/` 메시지 파서·
+  라우터·TCP 서버, `persistence/` 이벤트 저장소·writer, `services/` 알림, `web/` 대시보드.
+- 데이터 경로: `수신 스레드(FactoryRouter.parse_and_route: 파싱·검증·로그·긴급 알림)`
+  → `EventWriter.submit()` bounded 큐 → `EventWriter` 단일 스레드 → `EventStore.record_event()`
+  (SQLite `telemetry_events` INSERT + `machine_state` UPSERT, 한 트랜잭션).
+- `main.py`는 브리지만, `dashboard.py`(→ `web/app.py`)는 브리지 + FastAPI 대시보드를 조립한다.
+  의존성은 생성자 주입, `Settings.from_env()` 기준.
 - `TelemetryMessage.parse()`가 CSV v1과 JSON v1을 모두 받고, 버전·단위(`mm/s RMS`)·
-  값 범위·유형↔에러코드↔Zone 조합을 검증한다. 검증 실패 메시지는 외부 서비스로
-  전달하지 않는다.
+  값 범위·유형↔에러코드↔Zone 조합을 검증한다. 검증 실패 메시지는 저장·전달하지 않는다.
 - 유형/에러코드 대응: `PERIODIC=0`, `WARNING=1`, `CRITICAL=2`. C++ `ErrorCode`와
   Python `EXPECTED_ERROR_CODES`가 항상 일치해야 한다.
-- `send_to_kakao_sos`는 콘솔 미리보기만 하는 스텁이다. `NotionClient.send_to_notion_daily()`는
-  주입된 `post`(기본값 `requests.post`)로 실제 Notion API를 호출하며, 토큰이 없으면
-  `FactoryRouter`가 외부 보고 자체를 건너뛴다.
+- Zone D 연속 카운트는 C++가 보내지 않아 `FactoryRouter`가 연속 `CRITICAL` 수로 재계산한다.
+- `send_to_kakao_sos`는 콘솔 미리보기만 하는 스텁, CRITICAL에서 큐와 무관하게 즉시 호출된다.
+- 대시보드 조회 API(`web/api.py`)는 요청마다 읽기 전용 연결을 열고, `machine_state` +
+  계산된 `lifecycle`(running/stopped/offline), 필터형 이벤트 이력, 진동 시계열을 제공한다.
+- Notion 연동(`config/notion_client.py`)은 데이터 경로에서 빠졌고 미사용 상태다. `Settings`의
+  `NOTION_*`도 마찬가지. 정리 단계에서 함께 삭제 예정(`docs/plan-realtime-dashboard.md`).
 
 ### 설정
 - C++ 실행 프로필: `config/machine_profile.example.conf` (비인증 예시). `standard`는
