@@ -1,3 +1,4 @@
+import threading
 from unittest.mock import Mock, call
 
 from config.settings import Settings
@@ -72,3 +73,20 @@ def test_handle_client_ignores_empty_payload():
 
     router.parse_and_route.assert_not_called()
     assert client.closed is True
+
+
+def test_start_starts_and_stops_writer():
+    writer = Mock()
+    stop_event = threading.Event()
+    stop_event.set()  # accept 루프에 들어가자마자 빠져나온다
+    # port=0 → OS가 빈 포트를 잡는다
+    bridge = SmartFactoryBridge(
+        settings=Settings(host="127.0.0.1", port=0),
+        router=Mock(),
+        writer=writer,
+    )
+
+    bridge.start(stop_event=stop_event)
+
+    writer.start.assert_called_once()
+    writer.stop.assert_called_once()

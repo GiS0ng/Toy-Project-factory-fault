@@ -162,11 +162,13 @@ python/
 각 단계는 이전 상태로 롤백 가능하고, `pytest`/`black`/CTest 통과를 유지한다.
 커밋 메시지는 한국어 Conventional Commits (CLAUDE.md "Git 규칙").
 
-**진행 상황 (2026-09-08):** 1~3단계 완료 (`fef2bfa`, `81b7974`, `eda07f5`).
-3단계는 feature flag 없이 라우터를 바로 SQLite로 전환했다 — §4에서 Notion 완전
-제거를 확정했으므로 "Notion으로 되돌리기" 스위치는 불필요한 유연성(ponytail).
-`notion_client.py`/`test_notion_client.py`/`Settings.NOTION_*`는 미사용 상태로
-남겨 두었고, 정리 단계에서 삭제한다. 다음: 4단계.
+**진행 상황 (2026-09-08):** 1~4단계 완료 (`fef2bfa`, `81b7974`, `eda07f5`, +큐 분리).
+- 3단계는 feature flag 없이 라우터를 바로 SQLite로 전환 — §4에서 Notion 완전 제거를
+  확정했으므로 "되돌리기" 스위치는 불필요한 유연성(ponytail).
+- 4단계는 큐 + 단일 writer까지만. **인메모리 상태 허브는 6단계로 미룸** (소비자 부재).
+- `notion_client.py`/`test_notion_client.py`/`Settings.NOTION_*`는 미사용 상태로 남김,
+  정리 단계에서 삭제.
+- 다음: 5단계 (FastAPI 읽기 API + 폴링 대시보드).
 
 ### 1단계 — 현재 계약 문서화 + 결정 확정  ✅ 완료
 - 이 문서의 §4 열린 질문을 채운다. 현재 데이터 흐름/필드/검증을 `docs/`에 정리.
@@ -185,10 +187,18 @@ python/
 - 전환 스위치(env 또는 팩토리)로 Notion 경로 되돌리기 가능하게. 라우터 테스트를 SQLite fixture로.
 - `notion_client.py` / `test_notion_client.py`는 아직 삭제 안 함. `refactor: 이벤트 기록을 SQLite로 전환`
 
-### 4단계 — 수신/저장 분리: 큐 + writer + 상태 허브
-- `network/socket_server.py`는 검증된 이벤트를 bounded queue에 넣기만.
-- 전용 writer가 큐 소비 → DB 기록 → 상태 허브에 발행. overflow 정책 명시. graceful shutdown.
-- burst/overflow/DB오류/종료 테스트. `refactor: 수신과 저장을 이벤트 큐로 분리`
+### 4단계 — 수신/저장 분리: 큐 + writer  ✅ 완료 (상태 허브 제외)
+- `FactoryRouter`가 검증·로그·긴급 알림만 수신 스레드에서 처리하고 `IngestedEvent`를
+  `EventWriter.submit()`으로 bounded queue에 넣는다. `socket_server.py`는 그대로.
+- `persistence/event_writer.py`: 단일 writer 스레드가 큐 소비 → `EventStore.record_event`.
+  overflow 정책 = reject-newest(누적 유실 카운트). `stop()`은 큐를 비운 뒤 join.
+- Zone D 연속 카운트는 라우터가 락으로 보호하며 계산(여러 수신 스레드 대응).
+- `SmartFactoryBridge`가 accept 루프 앞뒤로 writer를 start/stop.
+- burst/overflow/DB오류/종료/이중start 테스트 + 라우터 통합 테스트.
+- **상태 허브는 보류.** 소비자(SSE)가 6단계에 생긴다. 그때까지 "현재 상태"는
+  `machine_state` 테이블이 담당하고, 5단계 REST는 이 테이블을 읽는다. 인메모리
+  허브 + 발행/구독은 6단계에서 추가한다(YAGNI).
+- `refactor: 수신과 저장을 이벤트 큐로 분리`
 
 ### 5단계 — FastAPI 읽기 API + 정적 대시보드(폴링)
 - `fastapi`/`uvicorn` 추가(승인 후). `web/app.py` lifespan에서 수신 스레드 기동/정지.

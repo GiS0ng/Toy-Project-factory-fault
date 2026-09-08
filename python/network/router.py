@@ -1,9 +1,9 @@
-import sqlite3
+import threading
 from collections.abc import Callable
 from datetime import datetime, timezone
 
 from network.message import MessageType, MessageValidationError, TelemetryMessage
-from persistence.event_store import EventStore
+from persistence.event_writer import EventWriter, IngestedEvent
 from services.alarm_service import send_to_kakao_sos
 
 
@@ -19,19 +19,28 @@ def _to_iso(moment: datetime) -> str:
 class FactoryRouter:
     def __init__(
         self,
-        event_store: EventStore,
+        writer: EventWriter,
         *,
         clock: Callable[[], datetime] = _utc_now,
     ):
-        """이벤트 저장소를 주입받아 데이터 라우터를 구성한다."""
-        self._event_store = event_store
+        """검증한 이벤트를 저장 큐로 넘기는 수신측 라우터를 구성한다.
+
+        이 라우터는 DB를 직접 건드리지 않는다. 파싱·검증·로그·긴급 알림만
+        수신 스레드에서 처리하고, 실제 저장은 EventWriter가 전담한다.
+        """
+        self._writer = writer
         self._clock = clock
         # 장비별 연속 CRITICAL 수. C++ MachineMonitor의 consecutiveZoneDCount_와 같은 역할.
-        # CSV v1에는 zone이 없으므로 zone 문자열이 아니라 message_type으로 판별한다.
+        # 여러 수신 스레드가 갱신하므로 락으로 보호한다.
         self._zone_d_streak: dict[int, int] = {}
+        self._streak_lock = threading.Lock()
 
     def parse_and_route(self, raw_message: str) -> bool:
-        """수신 메시지를 검증·기록하고 유형에 맞는 작업을 실행한다."""
+        """수신 메시지를 검증하고 로그·긴급 알림 후 저장 큐에 넣는다.
+
+        반환값은 "처리 대상으로 받아들였는가"이다. 검증 실패나 큐 오버플로면 False.
+        큐에 들어간 뒤의 저장 성공 여부는 EventWriter가 책임진다.
+        """
         try:
             message = TelemetryMessage.parse(raw_message)
         except MessageValidationError as error:
@@ -39,52 +48,39 @@ class FactoryRouter:
             return False
 
         received_at = _to_iso(self._clock())
-        # CSV v1은 timestamp가 없으므로 수신 시각을 이벤트 시각으로 쓴다.
-        observed_at = message.timestamp or received_at
         streak = self._advance_zone_d_streak(message)
-
-        try:
-            self._event_store.record_event(
-                message,
-                observed_at=observed_at,
-                received_at=received_at,
-                zone_d_consecutive_count=streak,
-            )
-        except sqlite3.Error as error:
-            print(f"  ➔ 🔴 [저장 실패] 이벤트를 기록하지 못했습니다: {error}")
-            return False
 
         if message.message_type == MessageType.PERIODIC:
             print(
                 f"📊 [정기] {message.machine_id}호기 Zone "
                 f"{message.zone or 'A/B'} ({message.vibration_value} mm/s RMS)"
             )
-            return True
-
-        if message.message_type == MessageType.WARNING:
+        elif message.message_type == MessageType.WARNING:
             print(
                 f"🟡 [경고] {message.machine_id}호기 Zone C "
                 f"({message.vibration_value} mm/s RMS)"
             )
-            return True
+        else:
+            print(
+                f"🚨 [위험] {message.machine_id}호기 Zone D "
+                f"({message.vibration_value} mm/s RMS) — 연속 {streak}회"
+            )
+            # 긴급 알림은 큐 상태와 무관하게 즉시 발송한다.
+            send_to_kakao_sos(
+                message.machine_id,
+                message.vibration_value,
+                message.error_code,
+            )
 
-        print(
-            f"🚨 [위험] {message.machine_id}호기 Zone D "
-            f"({message.vibration_value} mm/s RMS) — 연속 {streak}회"
-        )
-        send_to_kakao_sos(
-            message.machine_id,
-            message.vibration_value,
-            message.error_code,
-        )
-        return True
+        return self._writer.submit(IngestedEvent(message, received_at, streak))
 
     def _advance_zone_d_streak(self, message: TelemetryMessage) -> int:
         """C++ MachineMonitor와 동일: CRITICAL이면 +1, 아니면 0으로 리셋한다."""
-        if message.message_type == MessageType.CRITICAL:
-            self._zone_d_streak[message.machine_id] = (
-                self._zone_d_streak.get(message.machine_id, 0) + 1
-            )
-        else:
-            self._zone_d_streak[message.machine_id] = 0
-        return self._zone_d_streak[message.machine_id]
+        with self._streak_lock:
+            if message.message_type == MessageType.CRITICAL:
+                self._zone_d_streak[message.machine_id] = (
+                    self._zone_d_streak.get(message.machine_id, 0) + 1
+                )
+            else:
+                self._zone_d_streak[message.machine_id] = 0
+            return self._zone_d_streak[message.machine_id]
