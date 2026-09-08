@@ -198,4 +198,4 @@ python/
 ## 6. 참고
 - 커밋/브랜치 규칙: `CLAUDE.md` "Git 규칙"
 - 이 계획 수립 방식(내 계획 + Codex 병렬 계획 비교): 이 저장소의 구조 변경 표준 절차
-- Codex 원본 계획 전문은 이 대화의 `/codex:rescue` 출력에 있음(별도 보관 안 함)
+- Codex 원본 계획 전문: `docs/codex-plan-raw.md`
