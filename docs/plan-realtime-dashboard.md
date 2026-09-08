@@ -1,6 +1,6 @@
 # 계획: Notion → SQLite 교체 + 실시간 웹 대시보드
 
-/ 상태: 계획 확정 전 (열린 질문 미결). 구현 착수 전에 §4를 먼저 정한다.
+/ 상태: 결정 확정됨 (§4 열린 질문 해소, 2026-09-08). §5 1단계부터 착수.
 / 작성 근거: Claude 계획 + Codex 병렬 계획(`/codex:rescue`)을 비교해 종합.
 
 ## 1. 목표와 배경
@@ -138,19 +138,24 @@ python/
 └── tests/
 ```
 
-## 4. 착수 전 정할 것 (열린 질문)
+## 4. 착수 전 정할 것 → 결정 확정 (2026-09-08)
 
-- [ ] **시간대**: 저장은 UTC ISO8601, 대시보드 표시는? (제안: 저장 UTC / 표시 Asia/Seoul)
-- [ ] **Zone D 연속 카운트 출처**: C++가 JSON에 실어 보내는 값(`readings` 근처)인가,
-      Python 브리지가 수신 이벤트 기준으로 다시 세는가? (제안: C++ 값을 신뢰, 없으면 NULL)
-- [ ] **장비 종료 상태 표시**: `running` / `stopped`(Zone D 한도 도달) / `offline`(last_seen 초과)
-      세 가지로 구분. offline 판정 임계값은? (제안: 마지막 이벤트 후 `sample_interval_ms * 5`)
-- [ ] **CSV v1 계속 지원?** (제안: 유지 — C++가 아직 보냄. 파서 이미 있음)
-- [ ] **PERIODIC 저장량 확인**: `sample_interval_ms=3000` → 장비당 하루 ~28,800행.
-      30일 ≈ 86만 행. SQLite 문제 없음. 리텐션은 나중.
-- [ ] **Notion 완전 제거 vs export 유지** (제안: 코드 삭제, 기존 Notion 데이터는 이관 안 함)
-- [ ] **KakaoTalk 실연동**: 이번 범위 밖 (스텁 유지)
-- [ ] **FastAPI/uvicorn 의존성 추가 승인** (AGENTS.md: 패키지 추가 전 확인)
+- [x] **시간대**: 저장은 UTC ISO8601, 대시보드 **표시는 Asia/Seoul**. 변환은 표시 계층에서만.
+- [x] **Zone D 연속 카운트 출처**: **Python 브리지가 재계산**한다. C++는 이 값을 전송하지
+      않는 것으로 확인됨(`EventSerializer::toJson`/`toCsv`에 없고 `VibrationEvent` 구조체에도
+      없음, `MachineMonitor` 내부 변수로만 존재). Python 상태 허브가 `machine_id`별로
+      수신 이벤트 기준 연속 Zone D를 세고 `machine_state`에 기록한다(C++ `MachineMonitor`
+      로직과 동일: Zone D면 +1, 아니면 0). 나중에 C++가 JSON에 실어 보내면 그 값으로 교체.
+- [x] **장비 종료 상태 표시**: `running` / `stopped`(Zone D 한도 도달 후 정상 종료) /
+      `offline`(last_seen 초과) 세 가지. offline 임계값 = 마지막 이벤트 후 `sample_interval_ms * 5`.
+- [x] **CSV v1 계속 지원**: 유지 — C++가 아직 보냄. 파서 이미 있음. CSV는 `timestamp`가
+      없으므로 수신 시각을 `observed_at`으로 쓴다.
+- [x] **PERIODIC 저장량**: `sample_interval_ms=3000` → 장비당 하루 ~28,800행, 30일 ≈ 86만 행.
+      SQLite 문제 없음. 리텐션·롤업은 이후 단계, 자동삭제 없음(AGENTS.md).
+- [x] **Notion**: **코드 완전 제거**. `NotionClient`/`test_notion_client`/`Settings`의
+      `NOTION_*` 삭제. 기존 Notion 데이터는 이관하지 않는다.
+- [x] **KakaoTalk 실연동**: 이번 범위 밖. 콘솔 스텁(`send_to_kakao_sos`) 그대로 유지.
+- [x] **FastAPI/uvicorn 의존성 추가**: **승인됨**. 5단계 착수 시 `requirements.txt`에 추가.
 
 ## 5. 실행 계획 (단계별 독립 커밋)
 
