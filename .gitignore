@@ -9,6 +9,7 @@ build/
 .venv/
 .pytest_cache/
 .coverage
+compile_commands.json
 # .gitignore
 .env
 __pycache__/
