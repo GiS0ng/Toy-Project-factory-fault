@@ -162,17 +162,23 @@ python/
 각 단계는 이전 상태로 롤백 가능하고, `pytest`/`black`/CTest 통과를 유지한다.
 커밋 메시지는 한국어 Conventional Commits (CLAUDE.md "Git 규칙").
 
-### 1단계 — 현재 계약 문서화 + 결정 확정
-- 이 문서의 §4 열린 질문을 채운다. 현재 데이터 흐름/필드/검증을 `docs/`에 정리.
-- 코드 변경 없음. `docs: 현재 데이터 흐름과 교체 경계 문서화`
+**진행 상황 (2026-09-08):** 1~3단계 완료 (`fef2bfa`, `81b7974`, `eda07f5`).
+3단계는 feature flag 없이 라우터를 바로 SQLite로 전환했다 — §4에서 Notion 완전
+제거를 확정했으므로 "Notion으로 되돌리기" 스위치는 불필요한 유연성(ponytail).
+`notion_client.py`/`test_notion_client.py`/`Settings.NOTION_*`는 미사용 상태로
+남겨 두었고, 정리 단계에서 삭제한다. 다음: 4단계.
 
-### 2단계 — SQLite 저장소 추가 (미사용)
+### 1단계 — 현재 계약 문서화 + 결정 확정  ✅ 완료
+- 이 문서의 §4 열린 질문을 채운다. 현재 데이터 흐름/필드/검증을 `docs/`에 정리.
+- 코드 변경 없음. `docs: 현재 데이터 흐름과 교체 경계 문서화` → `docs/current-contract.md`
+
+### 2단계 — SQLite 저장소 추가 (미사용)  ✅ 완료
 - `config/database.py`(연결·WAL·`busy_timeout`·스키마), `persistence/event_store.py`
   (`record_event()` + 기본 조회). `Settings`에 `FACTORY_DB_PATH`(기본 `data/factory.db`).
 - `.gitignore`에 `data/*.db*` 추가. 단위 테스트(`:memory:`).
 - 라우터는 아직 Notion. `feat: SQLite 이벤트 저장소 추가`
 
-### 3단계 — Notion → SQLite 전환 (feature flag)
+### 3단계 — Notion → SQLite 전환  ✅ 완료 (feature flag 생략, 위 진행 상황 참고)
 - `FactoryRouter`가 `notion_client` 대신 `event_store` 주입받음. PERIODIC/WARNING/CRITICAL
   모두 기록 + `machine_state` UPSERT(같은 트랜잭션).
 - `main.create_bridge()`에서 저장소 항상 생성(“설정 없으면 스킵” 분기 제거).
