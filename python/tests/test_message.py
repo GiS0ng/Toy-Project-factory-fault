@@ -42,8 +42,15 @@ def test_parse_json_v1_message():
         "CRITICAL,0,7.0,2",
         '{"version":2,"type":"PERIODIC"}',
         '{"version":1,"type":"CRITICAL","unit":"g"}',
+        # machine_id가 SQLite INTEGER(64비트) 범위를 넘으면 저장 전에 거른다
+        f"PERIODIC,{2**63},1.0,0",
     ],
 )
 def test_invalid_messages_are_rejected(raw_message):
     with pytest.raises(MessageValidationError):
         TelemetryMessage.parse(raw_message)
+
+
+def test_max_int64_machine_id_is_accepted():
+    message = TelemetryMessage.parse(f"PERIODIC,{2**63 - 1},1.0,0")
+    assert message.machine_id == 2**63 - 1

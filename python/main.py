@@ -9,7 +9,7 @@ def create_bridge(settings: Settings | None = None) -> SmartFactoryBridge:
     """환경 설정을 읽어 실행 가능한 브리지를 조립한다."""
     settings = settings or Settings.from_env()
     event_store = EventStore.open(settings.factory_db_path)
-    writer = EventWriter(event_store)
+    writer = EventWriter(event_store, owns_store=True)
     return SmartFactoryBridge(
         settings=settings,
         router=FactoryRouter(writer),

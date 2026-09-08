@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query, Request
 
-from network.message import MessageType
+from network.message import MAX_MACHINE_ID, MessageType
 from persistence.event_store import EventStore
 
 router = APIRouter(prefix="/api")
@@ -41,16 +41,18 @@ def compute_lifecycle(
     offline_after_seconds: float,
     zone_d_limit: int,
 ) -> str:
-    """§4 결정: running / stopped(Zone D 한도 도달) / offline(last_seen 초과)."""
+    """§4 결정: running / stopped(Zone D 한도 도달) / offline(last_seen 초과).
+
+    Zone D 한도 도달은 확정된 정지 상태이므로 신선도보다 먼저 본다. 그렇지 않으면
+    방금 비상 정지한 설비가 last_seen이 신선한 동안 잠깐 'running'으로 보인다.
+    """
+    if (zone_d_consecutive_count or 0) >= zone_d_limit:
+        return "stopped"
     moment = _parse_iso(updated_at)
     if moment is None:
         return "offline"
     age = (now - moment).total_seconds()
-    if age <= offline_after_seconds:
-        return "running"
-    if (zone_d_consecutive_count or 0) >= zone_d_limit:
-        return "stopped"
-    return "offline"
+    return "running" if age <= offline_after_seconds else "offline"
 
 
 @router.get("/machines")
@@ -77,7 +79,7 @@ def list_machines(
 
 @router.get("/events")
 def list_events(
-    machine_id: int | None = Query(default=None, ge=1),
+    machine_id: int | None = Query(default=None, ge=1, le=MAX_MACHINE_ID),
     message_type: MessageType | None = Query(default=None, alias="type"),
     limit: int = Query(default=100, ge=1, le=1000),
     reader: EventStore = Depends(get_reader),
@@ -93,7 +95,7 @@ def list_events(
 
 @router.get("/timeseries")
 def get_timeseries(
-    machine_id: int = Query(ge=1),
+    machine_id: int = Query(ge=1, le=MAX_MACHINE_ID),
     hours: float = Query(default=1.0, gt=0, le=168),
     reader: EventStore = Depends(get_reader),
 ) -> dict:

@@ -1,4 +1,3 @@
-import threading
 from collections.abc import Callable
 from datetime import datetime, timezone
 
@@ -25,15 +24,12 @@ class FactoryRouter:
     ):
         """검증한 이벤트를 저장 큐로 넘기는 수신측 라우터를 구성한다.
 
-        이 라우터는 DB를 직접 건드리지 않는다. 파싱·검증·로그·긴급 알림만
-        수신 스레드에서 처리하고, 실제 저장은 EventWriter가 전담한다.
+        이 라우터는 DB를 직접 건드리지 않고 상태도 들지 않는다. 파싱·검증·로그·
+        긴급 알림만 수신 스레드에서 처리하고, 저장과 Zone D 연속 카운트 계산은
+        EventWriter(단일 스레드)가 전담한다.
         """
         self._writer = writer
         self._clock = clock
-        # 장비별 연속 CRITICAL 수. C++ MachineMonitor의 consecutiveZoneDCount_와 같은 역할.
-        # 여러 수신 스레드가 갱신하므로 락으로 보호한다.
-        self._zone_d_streak: dict[int, int] = {}
-        self._streak_lock = threading.Lock()
 
     def parse_and_route(self, raw_message: str) -> bool:
         """수신 메시지를 검증하고 로그·긴급 알림 후 저장 큐에 넣는다.
@@ -48,7 +44,6 @@ class FactoryRouter:
             return False
 
         received_at = _to_iso(self._clock())
-        streak = self._advance_zone_d_streak(message)
 
         if message.message_type == MessageType.PERIODIC:
             print(
@@ -63,7 +58,7 @@ class FactoryRouter:
         else:
             print(
                 f"🚨 [위험] {message.machine_id}호기 Zone D "
-                f"({message.vibration_value} mm/s RMS) — 연속 {streak}회"
+                f"({message.vibration_value} mm/s RMS)"
             )
             # 긴급 알림은 큐 상태와 무관하게 즉시 발송한다.
             send_to_kakao_sos(
@@ -72,15 +67,4 @@ class FactoryRouter:
                 message.error_code,
             )
 
-        return self._writer.submit(IngestedEvent(message, received_at, streak))
-
-    def _advance_zone_d_streak(self, message: TelemetryMessage) -> int:
-        """C++ MachineMonitor와 동일: CRITICAL이면 +1, 아니면 0으로 리셋한다."""
-        with self._streak_lock:
-            if message.message_type == MessageType.CRITICAL:
-                self._zone_d_streak[message.machine_id] = (
-                    self._zone_d_streak.get(message.machine_id, 0) + 1
-                )
-            else:
-                self._zone_d_streak[message.machine_id] = 0
-            return self._zone_d_streak[message.machine_id]
+        return self._writer.submit(IngestedEvent(message, received_at))

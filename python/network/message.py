@@ -20,6 +20,10 @@ EXPECTED_ERROR_CODES = {
     MessageType.CRITICAL: 2,
 }
 
+# SQLite INTEGER는 64비트 부호 있는 정수다. 이 범위를 벗어난 machine_id는
+# 파싱 단계에서 거른다(그렇지 않으면 저장 시 OverflowError로 writer가 죽는다).
+MAX_MACHINE_ID = 2**63 - 1
+
 EXPECTED_ZONES = {
     MessageType.PERIODIC: {None, "A", "B"},
     MessageType.WARNING: {None, "C"},
@@ -127,7 +131,7 @@ class TelemetryMessage:
         except (TypeError, ValueError) as error:
             raise MessageValidationError("필수 필드의 타입이 잘못되었습니다") from error
 
-        if parsed_machine_id <= 0 or parsed_vibration < 0:
+        if not 0 < parsed_machine_id <= MAX_MACHINE_ID or parsed_vibration < 0:
             raise MessageValidationError("설비 ID와 진동값 범위가 잘못되었습니다")
         if parsed_error_code != EXPECTED_ERROR_CODES[parsed_type]:
             raise MessageValidationError("메시지 유형과 에러 코드가 일치하지 않습니다")

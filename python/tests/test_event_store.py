@@ -95,3 +95,17 @@ def test_recent_events_orders_newest_first_and_limits(store):
 
     events = store.recent_events(limit=2)
     assert [row["vibration_value"] for row in events] == [4.0, 3.0]
+
+
+def test_timeseries_returns_newest_when_truncated_but_ascending(store):
+    for index in range(6):
+        store.record_event(
+            _message(f"PERIODIC,1,{index}.0,0"),
+            observed_at=f"2026-09-08T00:00:0{index}Z",
+            received_at=f"2026-09-08T00:00:0{index}Z",
+            zone_d_consecutive_count=0,
+        )
+
+    points = store.timeseries(machine_id=1, since_iso="2026-09-08T00:00:00Z", limit=3)
+    # limit을 넘으면 최근 3건을 취하되, 반환은 오래된 순
+    assert [row["vibration_value"] for row in points] == [3.0, 4.0, 5.0]

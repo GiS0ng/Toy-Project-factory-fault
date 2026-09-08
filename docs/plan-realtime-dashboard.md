@@ -162,7 +162,7 @@ python/
 각 단계는 이전 상태로 롤백 가능하고, `pytest`/`black`/CTest 통과를 유지한다.
 커밋 메시지는 한국어 Conventional Commits (CLAUDE.md "Git 규칙").
 
-**진행 상황 (2026-09-08):** 1~5단계 완료.
+**진행 상황 (2026-09-08):** 1~5단계 완료 + Codex/`code-review` 교차 리뷰 반영.
 - 3단계는 feature flag 없이 라우터를 바로 SQLite로 전환 — §4에서 Notion 완전 제거를
   확정했으므로 "되돌리기" 스위치는 불필요한 유연성(ponytail).
 - 4단계는 큐 + 단일 writer까지만. **인메모리 상태 허브는 6단계로 미룸** (소비자 부재).
@@ -217,9 +217,33 @@ python/
 - 참고: starlette 1.6 + httpx 조합에서 `StarletteDeprecationWarning`(httpx2 권장)이 뜨지만
   테스트는 통과. pytest는 경고로 실패하지 않음.
 
+### 5.5단계 — 교차 리뷰 반영 (2026-09-08)  ✅ 완료
+Codex(High 3/Medium 5/Low 3, Critical 0) + `/code-review`(5건)를 교차 비교해 반영.
+`fix: 대시보드 교차 리뷰 지적 반영`.
+
+반영한 것:
+- `timeseries()`가 윈도 앞부분이 아니라 **최근** N건을 반환하도록 (오래된 순 유지).
+  6/24시간 구간에서 차트가 현재 값을 못 보여주던 문제.
+- `compute_lifecycle`에서 Zone D 한도(정지)를 신선도보다 먼저 판정.
+- Zone D 연속 카운트 계산을 라우터 → `EventWriter`(단일 스레드)로 이동. 락·인터리빙
+  레이스·오버플로 시 숫자 건너뜀을 한 번에 제거. `IngestedEvent`에서 카운트 필드 제거.
+- `EventWriter._run`이 `sqlite3.Error`만이 아니라 모든 예외를 잡아 살아남고
+  `write_error_count`로 노출. `stop()`은 `is_alive()` 확인 + 종료 신호 `put` 타임아웃.
+- `machine_id`를 SQLite 64비트 범위로 파서(`message.py`)와 API(`Query(le=...)`)에서 제한.
+- `EventWriter(owns_store=True)`면 `stop()`에서 쓰기 연결을 닫는다(조립부만 해당).
+- `dropped_count` 증가를 락으로 보호.
+
+미룬 것 (계획 "이후" 또는 6단계로):
+- 협조적 종료(수신 client 스레드 추적·join, 소켓 read timeout) — 토이 규모 영향 낮음.
+  6단계에서 SSE 구독자 관리와 함께.
+- 브리지 기동 실패를 FastAPI lifespan으로 전파 — 6단계 또는 `/health` 도입 시.
+- 프론트 `innerHTML` → `textContent` — 현재 서버가 문자열 필드를 제약하므로 무해.
+- `/api/events` 정렬을 `observed_at` 기준으로 — `id` DESC(수신 순)는 방어 가능, 보조 정렬만 검토.
+
 ### 6단계 — SSE 실시간 채널
 - `/api/stream`: 연결 즉시 상태 스냅샷 → 이후 `state`/`event`/`heartbeat`. 구독자 관리,
   느린 구독자 큐 상한, 재연결. 프론트를 `EventSource`로 전환(폴링은 fallback 유지).
+- 인메모리 상태 허브 + 협조적 종료(수신 스레드 join)를 이 단계에서 함께.
 - `feat: 대시보드 SSE 실시간 스트림 추가`
 
 ### 이후 (별도, 선택)

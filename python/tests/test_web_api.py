@@ -93,24 +93,25 @@ def test_timeseries_requires_machine_id(client):
     assert client.get("/api/timeseries").status_code == 422
 
 
+def test_machine_id_over_int64_is_rejected(client):
+    huge = 2**63
+    assert client.get(f"/api/timeseries?machine_id={huge}").status_code == 422
+    assert client.get(f"/api/events?machine_id={huge}").status_code == 422
+
+
 def test_compute_lifecycle_rules():
     now = datetime(2026, 9, 8, 12, 0, 0, tzinfo=timezone.utc)
     fresh = "2026-09-08T11:59:50Z"
     stale = "2026-09-08T11:00:00Z"
 
-    assert (
-        compute_lifecycle(fresh, 0, now=now, offline_after_seconds=15, zone_d_limit=4)
-        == "running"
-    )
-    assert (
-        compute_lifecycle(stale, 4, now=now, offline_after_seconds=15, zone_d_limit=4)
-        == "stopped"
-    )
-    assert (
-        compute_lifecycle(stale, 1, now=now, offline_after_seconds=15, zone_d_limit=4)
-        == "offline"
-    )
-    assert (
-        compute_lifecycle(None, 0, now=now, offline_after_seconds=15, zone_d_limit=4)
-        == "offline"
-    )
+    def life(updated_at, count):
+        return compute_lifecycle(
+            updated_at, count, now=now, offline_after_seconds=15, zone_d_limit=4
+        )
+
+    assert life(fresh, 0) == "running"
+    assert life(stale, 1) == "offline"
+    assert life(None, 0) == "offline"
+    # Zone D 한도 도달은 신선도보다 우선한다 (방금 비상정지해도 stopped)
+    assert life(fresh, 4) == "stopped"
+    assert life(stale, 4) == "stopped"

@@ -138,16 +138,20 @@ class EventStore:
     def timeseries(
         self, *, machine_id: int, since_iso: str, limit: int = 2000
     ) -> list[sqlite3.Row]:
-        """한 장비의 since_iso 이후 진동값 시계열을 오래된 순으로 돌려준다."""
-        return list(
-            self._connection.execute(
-                """
-                SELECT observed_at, vibration_value, message_type, zone
-                FROM telemetry_events
-                WHERE machine_id = ? AND observed_at >= ?
-                ORDER BY observed_at ASC
-                LIMIT ?
-                """,
-                (machine_id, since_iso, max(1, min(limit, 10000))),
-            )
-        )
+        """한 장비의 since_iso 이후 진동값 시계열을 오래된 순으로 돌려준다.
+
+        구간이 길어 행이 limit을 넘으면 **최근** limit개를 취한다(오래된 쪽을 버림).
+        긴 구간의 다운샘플링은 이후 단계 과제.
+        """
+        rows = self._connection.execute(
+            """
+            SELECT observed_at, vibration_value, message_type, zone
+            FROM telemetry_events
+            WHERE machine_id = ? AND observed_at >= ?
+            ORDER BY observed_at DESC
+            LIMIT ?
+            """,
+            (machine_id, since_iso, max(1, min(limit, 10000))),
+        ).fetchall()
+        rows.reverse()
+        return rows
