@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>진동 모니터링 대시보드</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>설비 진동 모니터링</h1>
+      <span id="updated" class="muted"></span>
+    </header>
+
+    <main>
+      <section id="cards" class="cards"></section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>진동 시계열</h2>
+          <label>
+            설비
+            <select id="machine-select"></select>
+          </label>
+          <label>
+            구간
+            <select id="range-select">
+              <option value="0.25">15분</option>
+              <option value="1" selected>1시간</option>
+              <option value="6">6시간</option>
+              <option value="24">24시간</option>
+            </select>
+          </label>
+        </div>
+        <div id="chart" class="chart-box"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>최근 이벤트</h2>
+          <label>
+            유형
+            <select id="type-select">
+              <option value="">전체</option>
+              <option value="PERIODIC">정기</option>
+              <option value="WARNING">경고</option>
+              <option value="CRITICAL">위험</option>
+            </select>
+          </label>
+        </div>
+        <div class="table-scroll">
+          <table id="events">
+            <thead>
+              <tr>
+                <th>시각 (KST)</th>
+                <th>설비</th>
+                <th>유형</th>
+                <th>Zone</th>
+                <th>진동값 (mm/s RMS)</th>
+                <th>연속 D</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

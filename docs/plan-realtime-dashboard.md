@@ -162,13 +162,14 @@ python/
 각 단계는 이전 상태로 롤백 가능하고, `pytest`/`black`/CTest 통과를 유지한다.
 커밋 메시지는 한국어 Conventional Commits (CLAUDE.md "Git 규칙").
 
-**진행 상황 (2026-09-08):** 1~4단계 완료 (`fef2bfa`, `81b7974`, `eda07f5`, +큐 분리).
+**진행 상황 (2026-09-08):** 1~5단계 완료.
 - 3단계는 feature flag 없이 라우터를 바로 SQLite로 전환 — §4에서 Notion 완전 제거를
   확정했으므로 "되돌리기" 스위치는 불필요한 유연성(ponytail).
 - 4단계는 큐 + 단일 writer까지만. **인메모리 상태 허브는 6단계로 미룸** (소비자 부재).
+- 5단계는 조회 API 3종 + 폴링 대시보드. **보고서 API·Chart.js 벤더링은 축소**(각 단계 설명 참고).
 - `notion_client.py`/`test_notion_client.py`/`Settings.NOTION_*`는 미사용 상태로 남김,
   정리 단계에서 삭제.
-- 다음: 5단계 (FastAPI 읽기 API + 폴링 대시보드).
+- 다음: 6단계 (SSE 실시간 채널 + 인메모리 상태 허브).
 
 ### 1단계 — 현재 계약 문서화 + 결정 확정  ✅ 완료
 - 이 문서의 §4 열린 질문을 채운다. 현재 데이터 흐름/필드/검증을 `docs/`에 정리.
@@ -200,11 +201,21 @@ python/
   허브 + 발행/구독은 6단계에서 추가한다(YAGNI).
 - `refactor: 수신과 저장을 이벤트 큐로 분리`
 
-### 5단계 — FastAPI 읽기 API + 정적 대시보드(폴링)
-- `fastapi`/`uvicorn` 추가(승인 후). `web/app.py` lifespan에서 수신 스레드 기동/정지.
-- `GET /api/machines`, `/api/events`(필터), `/api/timeseries`, `/api/reports/daily|weekly`.
-- `web/static/` 대시보드: 상태 카드 + 이벤트 테이블 + Chart.js 차트(우선 폴링).
-- FastAPI TestClient + 임시 SQLite 테스트. `feat: 진동 모니터링 조회 API와 대시보드 추가`
+### 5단계 — FastAPI 읽기 API + 정적 대시보드(폴링)  ✅ 완료 (일부 축소)
+- `fastapi`/`uvicorn`/`httpx`(TestClient용) 추가. `web/app.py`의 `build_app(run_bridge=)`가
+  lifespan에서 수신 브리지를 백그라운드 스레드로 기동/정지. `python python/dashboard.py`로 실행.
+- 조회 3종: `GET /api/machines`(+lifecycle 계산), `/api/events`(machine_id·type·limit 필터),
+  `/api/timeseries`(machine_id·hours). 읽기는 요청마다 읽기 전용 연결(`connect_readonly`).
+- 엔드포인트는 동기 `def` — blocking sqlite3에는 이게 단순하고 안전하다. async는 6단계 SSE에서.
+- `web/static/` 대시보드: 상태 카드 + 이벤트 테이블 + **의존성 없는 인라인 SVG 라인 차트**.
+- **축소한 것**: (1) `/api/reports/daily|weekly` — 집계 테이블·롤업은 계획 "이후" 항목이라 보류.
+  (2) Chart.js 205KB 벤더링 대신 SVG 40줄 — "vanilla JS + 빌드 스텝 없음" 원칙은 유지, 라이브러리는
+  차트 정교화가 필요해질 때 `renderChart` 한 함수만 교체. (3) 상태 허브는 계속 6단계로.
+- `Settings`에 `web_host/web_port/sample_interval_ms/consecutive_zone_d_limit` 추가
+  (뒤 둘은 lifecycle 판정용, C++ 프로필과 값을 맞춘다).
+- FastAPI TestClient + 임시 SQLite 테스트 8건. `feat: 진동 모니터링 조회 API와 대시보드 추가`
+- 참고: starlette 1.6 + httpx 조합에서 `StarletteDeprecationWarning`(httpx2 권장)이 뜨지만
+  테스트는 통과. pytest는 경고로 실패하지 않음.
 
 ### 6단계 — SSE 실시간 채널
 - `/api/stream`: 연결 즉시 상태 스냅샷 → 이후 `state`/`event`/`heartbeat`. 구독자 관리,

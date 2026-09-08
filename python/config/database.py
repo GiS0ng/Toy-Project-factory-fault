@@ -32,10 +32,10 @@ CREATE TABLE IF NOT EXISTS machine_state (
 
 
 def connect(db_path: str | Path) -> sqlite3.Connection:
-    """WAL과 busy_timeout을 적용하고 스키마를 보장한 SQLite 연결을 돌려준다.
+    """WAL과 busy_timeout을 적용하고 스키마를 보장한 쓰기 연결을 돌려준다.
 
-    check_same_thread=False 는 3단계에서 라우터가 여러 수신 스레드에서 호출하기
-    때문이다. 4단계에서 전용 writer 스레드로 대체하면 이 완화는 불필요해진다.
+    check_same_thread=False 는 writer 스레드가 소유하지만 조립부(메인 스레드)에서
+    만들어 넘기기 때문이다. 실제 쓰기는 EventWriter 한 스레드에서만 일어난다.
     """
     is_memory = str(db_path) == ":memory:"
     if not is_memory:
@@ -50,4 +50,21 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
     connection.execute("PRAGMA journal_mode=WAL")
     connection.execute("PRAGMA busy_timeout=5000")
     connection.executescript(_SCHEMA)
+    return connection
+
+
+def connect_readonly(db_path: str | Path) -> sqlite3.Connection:
+    """읽기 전용 연결을 돌려준다. 대시보드 조회가 writer와 연결을 공유하지 않게 한다.
+
+    WAL 모드라 writer가 쓰는 동안에도 막히지 않고 읽는다. 스키마는 만들지 않으므로
+    쓰기 연결이 먼저 파일을 생성해 두어야 한다(조립 순서로 보장).
+    """
+    if str(db_path) == ":memory:":
+        raise ValueError(":memory: 는 읽기 전용 연결로 공유할 수 없습니다")
+    uri = f"file:{Path(db_path)}?mode=ro"
+    connection = sqlite3.connect(
+        uri, uri=True, check_same_thread=False, isolation_level=None
+    )
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA busy_timeout=5000")
     return connection

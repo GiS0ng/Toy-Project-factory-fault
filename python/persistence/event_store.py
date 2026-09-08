@@ -2,7 +2,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
-from config.database import connect
+from config.database import connect, connect_readonly
 from network.message import TelemetryMessage
 
 
@@ -21,8 +21,13 @@ class EventStore:
 
     @classmethod
     def open(cls, db_path: str | Path) -> "EventStore":
-        """경로(또는 ':memory:')로 연결을 만들어 저장소를 연다."""
+        """경로(또는 ':memory:')로 쓰기 연결을 만들어 저장소를 연다."""
         return cls(connect(db_path))
+
+    @classmethod
+    def open_readonly(cls, db_path: str | Path) -> "EventStore":
+        """읽기 전용 연결로 저장소를 연다. 조회 메서드만 쓴다(대시보드용)."""
+        return cls(connect_readonly(db_path))
 
     def close(self) -> None:
         self._connection.close()
@@ -103,4 +108,46 @@ class EventStore:
         """장비별 최신 상태를 machine_id 오름차순으로 돌려준다."""
         return list(
             self._connection.execute("SELECT * FROM machine_state ORDER BY machine_id")
+        )
+
+    def events(
+        self,
+        *,
+        machine_id: int | None = None,
+        message_type: str | None = None,
+        limit: int = 100,
+    ) -> list[sqlite3.Row]:
+        """필터를 걸어 이벤트를 최신순으로 돌려준다."""
+        clauses: list[str] = []
+        params: list[object] = []
+        if machine_id is not None:
+            clauses.append("machine_id = ?")
+            params.append(machine_id)
+        if message_type is not None:
+            clauses.append("message_type = ?")
+            params.append(message_type)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(max(1, min(limit, 1000)))
+        return list(
+            self._connection.execute(
+                f"SELECT * FROM telemetry_events {where} ORDER BY id DESC LIMIT ?",
+                params,
+            )
+        )
+
+    def timeseries(
+        self, *, machine_id: int, since_iso: str, limit: int = 2000
+    ) -> list[sqlite3.Row]:
+        """한 장비의 since_iso 이후 진동값 시계열을 오래된 순으로 돌려준다."""
+        return list(
+            self._connection.execute(
+                """
+                SELECT observed_at, vibration_value, message_type, zone
+                FROM telemetry_events
+                WHERE machine_id = ? AND observed_at >= ?
+                ORDER BY observed_at ASC
+                LIMIT ?
+                """,
+                (machine_id, since_iso, max(1, min(limit, 10000))),
+            )
         )

@@ -1,0 +1,202 @@
+:root {
+  --bg: #0f1420;
+  --panel: #182031;
+  --line: #2a3550;
+  --text: #e6ebf5;
+  --muted: #8b97b0;
+  --ok: #35c98a;
+  --warn: #e7b54c;
+  --crit: #e5544b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 24px;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 system-ui, "Segoe UI", sans-serif;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+h1 {
+  font-size: 20px;
+  margin: 0;
+}
+
+h2 {
+  font-size: 15px;
+  margin: 0;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--muted);
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.card.z-ok {
+  border-left-color: var(--ok);
+}
+.card.z-warn {
+  border-left-color: var(--warn);
+}
+.card.z-crit {
+  border-left-color: var(--crit);
+}
+
+.card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.mid {
+  font-weight: 600;
+}
+
+.big {
+  font-size: 32px;
+  font-weight: 700;
+  margin: 6px 0;
+}
+
+.pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.pill.running {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+.pill.stopped {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+.pill.offline {
+  color: var(--crit);
+  border-color: var(--crit);
+}
+
+.card dl {
+  margin: 8px 0 0;
+  display: grid;
+  gap: 2px;
+}
+
+.card dl > div {
+  display: flex;
+  justify-content: space-between;
+}
+
+.card dt {
+  color: var(--muted);
+}
+
+.card dd {
+  margin: 0;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.panel-head label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.chart-box {
+  width: 100%;
+}
+
+svg.chart {
+  width: 100%;
+  height: 220px;
+  display: block;
+}
+
+svg.chart .axis {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+svg.chart .line {
+  fill: none;
+  stroke: var(--ok);
+  stroke-width: 1.5;
+}
+
+svg.chart .tick {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+th {
+  color: var(--muted);
+  font-weight: 500;
+}
