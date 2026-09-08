@@ -1,21 +1,16 @@
-from config.notion_client import NotionClient
 from config.settings import Settings
 from network.router import FactoryRouter
 from network.socket_server import SmartFactoryBridge
+from persistence.event_store import EventStore
 
 
 def create_bridge() -> SmartFactoryBridge:
     """환경 설정을 읽어 실행 가능한 브리지를 조립한다."""
     settings = Settings.from_env()
-    notion_client = None
-    if settings.notion_enabled:
-        notion_client = NotionClient(
-            token=settings.notion_token or "",
-            database_id=settings.database_id or "",
-        )
+    event_store = EventStore.open(settings.factory_db_path)
     return SmartFactoryBridge(
         settings=settings,
-        router=FactoryRouter(notion_client=notion_client),
+        router=FactoryRouter(event_store),
     )
 
 
